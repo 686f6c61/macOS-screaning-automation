@@ -1,0 +1,78 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish release
+    runs-on: macos-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+      DOWNLOAD_URL_PREFIX: https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate secret
+        run: |
+          if [[ -z "${SPARKLE_PRIVATE_KEY}" ]]; then
+            echo "::error::Missing SPARKLE_PRIVATE_KEY repository secret"
+            exit 1
+          fi
+
+      - name: Validate tag matches bundle version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          PLIST_VERSION="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' Resources/Info.plist)"
+          if [[ "$VERSION" != "$PLIST_VERSION" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match CFBundleShortVersionString $PLIST_VERSION"
+            exit 1
+          fi
+
+      - name: Build release archive
+        run: ./scripts/package_release.sh
+
+      - name: Generate Sparkle appcast
+        run: ./scripts/generate_appcast.sh releases
+
+      - name: Validate artifacts
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ZIP="releases/Screening-Automation-${VERSION}-arm64.zip"
+          test -f "$ZIP"
+          test -f releases/appcast.xml
+          shasum -a 256 "$ZIP"
+          xmllint --noout releases/appcast.xml
+          unzip -t "$ZIP" >/dev/null
+
+      - name: Publish GitHub release
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ZIP="releases/Screening-Automation-${VERSION}-arm64.zip"
+          NOTES="releases/Screening-Automation-${VERSION}-arm64.md"
+
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$ZIP" releases/appcast.xml "$NOTES" --clobber
+            gh release edit "$GITHUB_REF_NAME" \
+              --title "Screening Automation ${VERSION}" \
+              --notes-file "$NOTES"
+          else
+            gh release create "$GITHUB_REF_NAME" "$ZIP" releases/appcast.xml "$NOTES" \
+              --title "Screening Automation ${VERSION}" \
+              --notes-file "$NOTES"
+          fi

@@ -1,0 +1,25 @@
+.DS_Store
+._*
+/.build
+/Packages
+xcuserdata/
+DerivedData/
+.swiftpm/configuration/registries.json
+.swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
+.netrc
+
+# Generated release artifacts
+/releases
+*.dmg
+*.pkg
+*.xcarchive
+*.dSYM
+
+# Signing and notarization secrets
+sparkle_private_key*.txt
+*.p12
+*.cer
+*.key
+*.mobileprovision
+notarytool-profile.json
+notarization-*.json
