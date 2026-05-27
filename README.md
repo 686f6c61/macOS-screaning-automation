@@ -7,15 +7,15 @@ Screening Automation es una utilidad nativa de macOS para la barra de menu. Apar
 
 ## Estado
 
-- Version: `0.3.0`
+- Version: `0.3.1`
 - App instalada: `/Applications/Screening Automation.app`
 - Bundle ID: `tech.686f6c61.screening-automation`
 - Repo GitHub: `686f6c61/macOS-screaning-automation`
 - Tap previsto: `686f6c61/macOS-screaning-automation`
 - Appcast Sparkle: `https://github.com/686f6c61/macOS-screaning-automation/releases/latest/download/appcast.xml`
-- Toolchain local usado: Xcode `26.4.1`, Swift `6.3.1`, Swift language mode `6`
+- Toolchain local usado: Xcode `26.5`, Swift `6.3.2`, Swift language mode `6`
 - Swift tools minimo para CI: `6.1`
-- Updater: Sparkle `2.9.1`
+- Updater: Sparkle `2.9.2`
 - macOS minimo: `13.0`
 
 ## GitHub About
@@ -85,8 +85,8 @@ Exportacion local de la clave:
 Publicacion:
 
 ```sh
-git tag v0.3.0
-git push origin v0.3.0
+git tag v0.3.1
+git push origin v0.3.1
 ```
 
 El Homebrew tap previsto es:
@@ -120,10 +120,11 @@ No subas ese archivo al repo. En CI, `generate_appcast` puede recibirla con `--e
 
 macOS requiere:
 
-- Accesibilidad: necesaria para escuchar activadores globales de raton.
+- Accesibilidad: ayuda a escuchar activadores globales de raton. La app tambien puede usar escucha AppKit/HID cuando macOS lo permite.
 - Grabacion de pantalla: necesaria para capturar la region seleccionada.
 
 Al cambiar el nombre y bundle ID de `Monitor Screening` a `Screening Automation`, macOS puede pedir conceder permisos de nuevo.
+Si Ajustes del Sistema muestra el permiso activado pero la app indica `Pendiente`, desactiva y activa de nuevo `Screening Automation`, cierra la app y vuelve a abrirla. La app valida el permiso real con ScreenCaptureKit y rechaza capturas negras de privacidad.
 
 ## Build e Instalacion
 
@@ -147,7 +148,9 @@ El script firma la app con la primera identidad `Apple Development` disponible. 
 
 - No usa analytics ni servidores propios.
 - La unica conexion prevista es la consulta HTTPS de Sparkle al appcast de GitHub Releases.
-- La captura se realiza con `/usr/sbin/screencapture` usando argumentos directos, sin shell intermedio.
+- La captura se realiza con `/usr/sbin/screencapture` usando argumentos directos, sin shell intermedio, y usa ScreenCaptureKit como reserva en macOS moderno.
+- La app oculta su ventana de ajustes antes de capturar para no incluirla en la region seleccionada.
+- Las capturas negras devueltas por privacidad/TCC se descartan y se muestran como error.
 - Los logs estan en `~/Library/Logs/ScreeningAutomation/ScreeningAutomation.log`.
 - El log rota al superar 512 KB y conserva una copia `ScreeningAutomation.log.1`.
 

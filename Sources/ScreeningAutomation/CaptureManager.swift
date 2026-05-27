@@ -1,6 +1,7 @@
 import AppKit
 import ImageIO
 import Foundation
+import ScreenCaptureKit
 import UniformTypeIdentifiers
 
 struct CaptureRequest {
@@ -36,7 +37,10 @@ final class CaptureManager: ObservableObject {
     @Published private(set) var lastMessage = "Listo"
     @Published private(set) var lastCaptureSucceeded = false
 
+    var prepareForCapture: (() -> Void)?
+
     private let settings: AppSettings
+    private let captureSettleDelay: TimeInterval = 0.22
 
     init(settings: AppSettings) {
         self.settings = settings
@@ -56,27 +60,30 @@ final class CaptureManager: ObservableObject {
 
         isCapturing = true
         lastMessage = "Capturando..."
+        prepareForCapture?()
         DiagnosticLog.write("capture started source=\(source) region=\(request.region.screencaptureArgument) output=\(request.outputFolderPath)")
 
-        DispatchQueue.global(qos: .userInitiated).async {
-            let result = Self.performCapture(request: request)
-            DispatchQueue.main.async {
-                self.isCapturing = false
-                switch result {
-                case .success(let url):
-                    self.lastCaptureURL = url
-                    self.lastCaptureSucceeded = true
-                    self.lastMessage = "Guardado: \(url.lastPathComponent)"
-                    DiagnosticLog.write("capture succeeded file=\(url.path)")
-                case .failure(let error):
-                    self.lastCaptureSucceeded = false
-                    self.lastMessage = error.localizedDescription
-                    DiagnosticLog.write("capture failed error=\(error.localizedDescription)")
-                    if !ScreenCapturePermission.allowed {
-                        _ = ScreenCapturePermission.request()
-                        ScreenCapturePermission.openSettings()
+        DispatchQueue.main.asyncAfter(deadline: .now() + captureSettleDelay) {
+            DispatchQueue.global(qos: .userInitiated).async {
+                let result = Self.performCapture(request: request)
+                DispatchQueue.main.async {
+                    self.isCapturing = false
+                    switch result {
+                    case .success(let url):
+                        self.lastCaptureURL = url
+                        self.lastCaptureSucceeded = true
+                        self.lastMessage = "Guardado: \(url.lastPathComponent)"
+                        DiagnosticLog.write("capture succeeded file=\(url.path)")
+                    case .failure(let error):
+                        self.lastCaptureSucceeded = false
+                        self.lastMessage = error.localizedDescription
+                        DiagnosticLog.write("capture failed error=\(error.localizedDescription)")
+                        if !ScreenCapturePermission.allowed {
+                            _ = ScreenCapturePermission.request()
+                            ScreenCapturePermission.openSettings()
+                        }
+                        NSSound.beep()
                     }
-                    NSSound.beep()
                 }
             }
         }
@@ -117,6 +124,11 @@ final class CaptureManager: ObservableObject {
                     .filter { !$0.isEmpty }
                     .joined(separator: " ")
                 DiagnosticLog.write("screencapture failed status=\(process.terminationStatus) details=\(details)")
+                if captureWithScreenCaptureKit(request: request, fileURL: fileURL) {
+                    DiagnosticLog.write("screen capture kit fallback succeeded file=\(fileURL.path)")
+                    return .success(fileURL)
+                }
+                DiagnosticLog.write("screen capture kit fallback failed")
                 if captureWithCoreGraphics(request: request, fileURL: fileURL) {
                     DiagnosticLog.write("core graphics fallback succeeded file=\(fileURL.path)")
                     return .success(fileURL)
@@ -130,6 +142,43 @@ final class CaptureManager: ObservableObject {
         }
     }
 
+    nonisolated private static func captureWithScreenCaptureKit(request: CaptureRequest, fileURL: URL) -> Bool {
+        guard #available(macOS 15.2, *) else {
+            return false
+        }
+
+        let rect = CGRect(
+            x: request.region.x,
+            y: request.region.y,
+            width: request.region.width,
+            height: request.region.height
+        )
+        let semaphore = DispatchSemaphore(value: 0)
+        let result = ScreenCaptureKitImageResult()
+
+        SCScreenshotManager.captureImage(in: rect) { image, error in
+            result.set(image: image, error: error)
+            semaphore.signal()
+        }
+
+        guard semaphore.wait(timeout: .now() + 8) == .success else {
+            DiagnosticLog.write("screen capture kit timed out")
+            return false
+        }
+        if let errorDescription = result.errorDescription {
+            DiagnosticLog.write("screen capture kit error=\(errorDescription)")
+        }
+        guard let image = result.image else {
+            return false
+        }
+        guard !CaptureImageInspector.isLikelyBlank(image) else {
+            try? FileManager.default.removeItem(at: fileURL)
+            DiagnosticLog.write("screen capture kit produced blank image")
+            return false
+        }
+        return write(image: image, format: request.imageFormat, to: fileURL)
+    }
+
     nonisolated private static func captureWithCoreGraphics(request: CaptureRequest, fileURL: URL) -> Bool {
         let rect = CGRect(
             x: request.region.x,
@@ -140,12 +189,16 @@ final class CaptureManager: ObservableObject {
         guard let image = CGWindowListCreateImage(rect, [.optionOnScreenOnly], kCGNullWindowID, [.bestResolution]) else {
             return false
         }
-        guard !isLikelyBlank(image) else {
+        guard !CaptureImageInspector.isLikelyBlank(image) else {
             try? FileManager.default.removeItem(at: fileURL)
             DiagnosticLog.write("core graphics fallback produced blank image")
             return false
         }
-        let type = request.imageFormat == .jpg ? UTType.jpeg.identifier as CFString : UTType.png.identifier as CFString
+        return write(image: image, format: request.imageFormat, to: fileURL)
+    }
+
+    nonisolated private static func write(image: CGImage, format: ImageFormat, to fileURL: URL) -> Bool {
+        let type = format == .jpg ? UTType.jpeg.identifier as CFString : UTType.png.identifier as CFString
         guard let destination = CGImageDestinationCreateWithURL(fileURL as CFURL, type, 1, nil) else {
             return false
         }
@@ -153,7 +206,24 @@ final class CaptureManager: ObservableObject {
         return CGImageDestinationFinalize(destination)
     }
 
-    nonisolated private static func isLikelyBlank(_ image: CGImage) -> Bool {
+    nonisolated private static func makeFileName(format: ImageFormat) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss-SSS"
+        return "SA_\(formatter.string(from: Date())).\(format.fileExtension)"
+    }
+
+    func revealLastCapture() {
+        guard let lastCaptureURL else {
+            settings.revealOutputFolder()
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([lastCaptureURL])
+    }
+}
+
+enum CaptureImageInspector {
+    static func isLikelyBlank(_ image: CGImage) -> Bool {
         let width = 32
         let height = 32
         let bytesPerPixel = 4
@@ -190,19 +260,25 @@ final class CaptureManager: ObservableObject {
 
         return maxValue <= 8 || (maxValue - minValue <= 3 && brightPixels < 4)
     }
+}
 
-    nonisolated private static func makeFileName(format: ImageFormat) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss-SSS"
-        return "SA_\(formatter.string(from: Date())).\(format.fileExtension)"
+final class ScreenCaptureKitImageResult: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedImage: CGImage?
+    private var storedErrorDescription: String?
+
+    var image: CGImage? {
+        lock.withLock { storedImage }
     }
 
-    func revealLastCapture() {
-        guard let lastCaptureURL else {
-            settings.revealOutputFolder()
-            return
+    var errorDescription: String? {
+        lock.withLock { storedErrorDescription }
+    }
+
+    func set(image: CGImage?, error: Error?) {
+        lock.withLock {
+            storedImage = image
+            storedErrorDescription = error?.localizedDescription
         }
-        NSWorkspace.shared.activateFileViewerSelecting([lastCaptureURL])
     }
 }

@@ -47,6 +47,9 @@ final class AppController: ObservableObject {
         eventMonitor = EventTapMonitor(settings: settings) { [weak captureManager] source in
             captureManager?.captureNow(source: source)
         }
+        captureManager.prepareForCapture = { [weak self] in
+            self?.prepareForCapture()
+        }
     }
 
     func start() {
@@ -93,6 +96,13 @@ final class AppController: ObservableObject {
     private func show(_ window: NSWindow) {
         NSApplication.shared.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+    }
+
+    private func prepareForCapture() {
+        if settingsWindow?.isVisible == true {
+            settingsWindow?.orderOut(nil)
+            DiagnosticLog.write("settings window hidden before capture")
+        }
     }
 }
 

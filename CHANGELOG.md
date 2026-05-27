@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.1 - 2026-05-27
+
+- Corregida la deteccion de permiso de Grabacion de pantalla cuando macOS muestra la app como autorizada pero TCC sigue rechazando la captura.
+- Aniadido sondeo con ScreenCaptureKit para validar el permiso real de captura y registrar errores TCC utiles en diagnostico.
+- Aniadido fallback de captura con ScreenCaptureKit para macOS moderno cuando `/usr/sbin/screencapture` devuelve `could not create image from rect`.
+- Evitado guardar capturas negras o placeholders de privacidad como capturas correctas.
+- La ventana de ajustes se oculta antes de capturar para que no aparezca dentro de la region.
+- El boton de permiso de captura abre Ajustes del Sistema cuando macOS no concede el permiso directamente.
+- Actualizado Sparkle a `2.9.2`.
+- Subida la version del bundle a `0.3.1` (`CFBundleVersion` 4).
+
 ## 0.3.0 - 2026-05-03
 
 - Renombrada la app a `Screening Automation`.

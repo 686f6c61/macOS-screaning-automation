@@ -182,7 +182,7 @@ struct SettingsView: View {
                 }
                 Divider()
                 PermissionRow(
-                    title: "Accesibilidad / activadores",
+                    title: "Activadores de raton",
                     allowed: accessibilityReady,
                     requestTitle: "Solicitar",
                     requestAction: {
@@ -196,7 +196,9 @@ struct SettingsView: View {
                     allowed: captureReady,
                     requestTitle: "Solicitar",
                     requestAction: {
-                        _ = ScreenCapturePermission.request()
+                        if !ScreenCapturePermission.request() {
+                            ScreenCapturePermission.openSettings()
+                        }
                         permissions.refresh()
                     },
                     settingsAction: ScreenCapturePermission.openSettings
