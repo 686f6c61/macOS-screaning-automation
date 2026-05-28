@@ -7,7 +7,7 @@ Screening Automation es una utilidad nativa de macOS para la barra de menu. Apar
 
 ## Estado
 
-- Version: `0.3.1`
+- Version: `0.3.2`
 - App instalada: `/Applications/Screening Automation.app`
 - Bundle ID: `tech.686f6c61.screening-automation`
 - Repo GitHub: `686f6c61/macOS-screaning-automation`
@@ -85,8 +85,8 @@ Exportacion local de la clave:
 Publicacion:
 
 ```sh
-git tag v0.3.1
-git push origin v0.3.1
+git tag v0.3.2
+git push origin v0.3.2
 ```
 
 El Homebrew tap previsto es:

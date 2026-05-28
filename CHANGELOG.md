@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.2 - 2026-05-28
+
+- Redisenado el selector de zona con overlay transparente, lineas discontinuas y contorno mucho mas sutil.
+- Eliminado el relleno azul de la region seleccionada para que solo queden bordes y esquinas de referencia.
+- Validada la seleccion de zona y una captura real tras el cambio visual.
+- Subida la version del bundle a `0.3.2` (`CFBundleVersion` 5).
+
 ## 0.3.1 - 2026-05-27
 
 - Corregida la deteccion de permiso de Grabacion de pantalla cuando macOS muestra la app como autorizada pero TCC sigue rechazando la captura.
