@@ -53,6 +53,7 @@ final class AppController: ObservableObject {
     }
 
     func start() {
+        DiagnosticLog.prepare()
         permissions.startMonitoring()
         eventMonitor.start()
     }
@@ -132,6 +133,20 @@ private struct MenuContent: View {
         .disabled(settings.selectedRegion == nil || captureManager.isCapturing)
 
         Button {
+            if captureManager.armedCaptureActive {
+                captureManager.cancelArmedBurst()
+            } else {
+                captureManager.startArmedBurst()
+            }
+        } label: {
+            Label(
+                captureManager.armedCaptureActive ? "Cancelar modo armado" : "Armar rafaga",
+                systemImage: captureManager.armedCaptureActive ? "stop.circle" : "timer"
+            )
+        }
+        .disabled(settings.selectedRegion == nil)
+
+        Button {
             controller.defineRegion()
         } label: {
             Label("Definir zona", systemImage: "viewfinder")
@@ -179,6 +194,9 @@ private struct MenuContent: View {
             systemImage: permissionsReady ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
         )
         Text(captureManager.lastMessage)
+        if captureManager.armedCaptureActive {
+            Text(captureManager.armedCaptureMessage)
+        }
 
         Divider()
 
@@ -190,6 +208,6 @@ private struct MenuContent: View {
     }
 
     private var permissionsReady: Bool {
-        permissions.screenCaptureAllowed && (permissions.accessibilityAllowed || eventMonitor.isRunning)
+        permissions.screenCaptureAllowed && permissions.inputMonitoringAllowed
     }
 }

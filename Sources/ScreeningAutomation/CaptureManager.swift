@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import ImageIO
 import Foundation
 import ScreenCaptureKit
@@ -13,6 +14,8 @@ struct CaptureRequest {
 enum CaptureError: Error, LocalizedError {
     case missingRegion
     case processFailed(Int32, String)
+    case processTimedOut
+    case invalidImage
     case coreGraphicsFailed
 
     var errorDescription: String? {
@@ -24,6 +27,10 @@ enum CaptureError: Error, LocalizedError {
                 return "screencapture termino con codigo \(status)."
             }
             return "screencapture termino con codigo \(status): \(details)"
+        case .processTimedOut:
+            return "La captura ha superado el tiempo de espera."
+        case .invalidImage:
+            return "La captura no produjo una imagen valida."
         case .coreGraphicsFailed:
             return "No se pudo crear imagen de la zona."
         }
@@ -32,18 +39,37 @@ enum CaptureError: Error, LocalizedError {
 
 @MainActor
 final class CaptureManager: ObservableObject {
+    typealias CaptureExecutor = @Sendable (CaptureRequest) -> Result<URL, Error>
+
     @Published private(set) var isCapturing = false
     @Published private(set) var lastCaptureURL: URL?
     @Published private(set) var lastMessage = "Listo"
     @Published private(set) var lastCaptureSucceeded = false
+    @Published private(set) var armedCaptureActive = false
+    @Published private(set) var armedCaptureMessage = "Modo armado inactivo"
 
     var prepareForCapture: (() -> Void)?
 
     private let settings: AppSettings
-    private let captureSettleDelay: TimeInterval = 0.22
+    private let captureExecutor: CaptureExecutor
+    private let captureSettleDelay: TimeInterval
+    private var activeCaptureOperationID: UUID?
+    private var armedCaptureTimer: DispatchSourceTimer?
+    private var armedCaptureActivity: NSObjectProtocol?
+    private var armedCaptureRequest: CaptureRequest?
+    private var armedCaptureSessionID: UUID?
+    private var armedCaptureRemaining = 0
+    private var armedCaptureTotal = 0
+    private var armedCaptureInFlight = false
 
-    init(settings: AppSettings) {
+    init(
+        settings: AppSettings,
+        captureSettleDelay: TimeInterval = 0.22,
+        captureExecutor: CaptureExecutor? = nil
+    ) {
         self.settings = settings
+        self.captureSettleDelay = captureSettleDelay
+        self.captureExecutor = captureExecutor ?? Self.performCapture
     }
 
     func captureNow(source: String) {
@@ -59,21 +85,29 @@ final class CaptureManager: ObservableObject {
         }
 
         isCapturing = true
+        let operationID = UUID()
+        activeCaptureOperationID = operationID
         lastMessage = "Capturando..."
         prepareForCapture?()
-        DiagnosticLog.write("capture started source=\(source) region=\(request.region.screencaptureArgument) output=\(request.outputFolderPath)")
+        DiagnosticLog.write("capture started source=\(source) size=\(request.region.width)x\(request.region.height)")
+        let captureExecutor = captureExecutor
 
         DispatchQueue.main.asyncAfter(deadline: .now() + captureSettleDelay) {
             DispatchQueue.global(qos: .userInitiated).async {
-                let result = Self.performCapture(request: request)
+                let result = captureExecutor(request)
                 DispatchQueue.main.async {
+                    guard self.activeCaptureOperationID == operationID else {
+                        DiagnosticLog.write("capture completion ignored reason=stale-operation")
+                        return
+                    }
+                    self.activeCaptureOperationID = nil
                     self.isCapturing = false
                     switch result {
                     case .success(let url):
                         self.lastCaptureURL = url
                         self.lastCaptureSucceeded = true
                         self.lastMessage = "Guardado: \(url.lastPathComponent)"
-                        DiagnosticLog.write("capture succeeded file=\(url.path)")
+                        DiagnosticLog.write("capture succeeded file=\(url.lastPathComponent)")
                     case .failure(let error):
                         self.lastCaptureSucceeded = false
                         self.lastMessage = error.localizedDescription
@@ -89,7 +123,160 @@ final class CaptureManager: ObservableObject {
         }
     }
 
-    nonisolated private static func performCapture(request: CaptureRequest) -> Result<URL, Error> {
+    func startArmedBurst() {
+        guard !armedCaptureActive else {
+            cancelArmedBurst()
+            return
+        }
+        guard let request = settings.captureRequest() else {
+            lastMessage = CaptureError.missingRegion.localizedDescription
+            lastCaptureSucceeded = false
+            armedCaptureMessage = CaptureError.missingRegion.localizedDescription
+            DiagnosticLog.write("armed burst skipped reason=missing-region")
+            NSSound.beep()
+            return
+        }
+
+        prepareForCapture?()
+        let delay = settings.armedCaptureDelaySeconds
+        let interval = settings.armedCaptureIntervalSeconds
+        let total = settings.armedCaptureCount
+
+        armedCaptureRequest = request
+        let sessionID = UUID()
+        armedCaptureSessionID = sessionID
+        armedCaptureRemaining = total
+        armedCaptureTotal = total
+        armedCaptureInFlight = false
+        armedCaptureActive = true
+        armedCaptureMessage = "Armado: espera \(delay.formatted(.number.precision(.fractionLength(1)))) s"
+        lastMessage = armedCaptureMessage
+        beginArmedCaptureActivity()
+        DiagnosticLog.write("armed burst scheduled delay=\(delay) interval=\(interval) count=\(total)")
+
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(
+            deadline: .now() + delay,
+            repeating: interval,
+            leeway: .milliseconds(80)
+        )
+        timer.setEventHandler { [weak self] in
+            self?.runArmedCaptureTick(sessionID: sessionID)
+        }
+        armedCaptureTimer = timer
+        timer.resume()
+    }
+
+    func cancelArmedBurst() {
+        guard let sessionID = armedCaptureSessionID else {
+            return
+        }
+        finishArmedBurst(sessionID: sessionID, message: "Modo armado cancelado")
+        DiagnosticLog.write("armed burst cancelled")
+    }
+
+    private func runArmedCaptureTick(sessionID: UUID) {
+        guard armedCaptureActive, armedCaptureSessionID == sessionID else {
+            return
+        }
+        guard !armedCaptureInFlight, !isCapturing else {
+            DiagnosticLog.write("armed burst tick skipped reason=capture-in-flight")
+            return
+        }
+        guard let request = armedCaptureRequest else {
+            finishArmedBurst(sessionID: sessionID, message: "Modo armado sin zona")
+            return
+        }
+        guard armedCaptureRemaining > 0 else {
+            finishArmedBurst(sessionID: sessionID, message: "Modo armado finalizado")
+            return
+        }
+
+        let index = armedCaptureTotal - armedCaptureRemaining + 1
+        armedCaptureRemaining -= 1
+        armedCaptureInFlight = true
+        isCapturing = true
+        let operationID = UUID()
+        activeCaptureOperationID = operationID
+        armedCaptureMessage = "Armado: captura \(index)/\(armedCaptureTotal)"
+        lastMessage = armedCaptureMessage
+        DiagnosticLog.write("armed burst capture started index=\(index) remaining=\(armedCaptureRemaining)")
+
+        let captureExecutor = captureExecutor
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = captureExecutor(request)
+            DispatchQueue.main.async {
+                if self.activeCaptureOperationID == operationID {
+                    self.activeCaptureOperationID = nil
+                    self.isCapturing = false
+                }
+                guard self.armedCaptureSessionID == sessionID else {
+                    DiagnosticLog.write("armed burst completion ignored reason=stale-session")
+                    return
+                }
+                self.armedCaptureInFlight = false
+                switch result {
+                case .success(let url):
+                    self.lastCaptureURL = url
+                    self.lastCaptureSucceeded = true
+                    self.lastMessage = "Guardado: \(url.lastPathComponent)"
+                    self.armedCaptureMessage = "Armado: guardada \(index)/\(self.armedCaptureTotal)"
+                    DiagnosticLog.write("armed burst capture succeeded index=\(index) file=\(url.lastPathComponent)")
+                case .failure(let error):
+                    self.lastCaptureSucceeded = false
+                    self.lastMessage = error.localizedDescription
+                    self.armedCaptureMessage = "Armado: error \(index)/\(self.armedCaptureTotal)"
+                    DiagnosticLog.write("armed burst capture failed index=\(index) error=\(error.localizedDescription)")
+                    NSSound.beep()
+                }
+
+                if self.armedCaptureRemaining <= 0 {
+                    self.finishArmedBurst(sessionID: sessionID, message: "Modo armado finalizado")
+                }
+            }
+        }
+    }
+
+    private func finishArmedBurst(sessionID: UUID, message: String) {
+        guard armedCaptureSessionID == sessionID else {
+            return
+        }
+        armedCaptureTimer?.cancel()
+        armedCaptureTimer = nil
+        armedCaptureRequest = nil
+        armedCaptureSessionID = nil
+        armedCaptureRemaining = 0
+        armedCaptureTotal = 0
+        armedCaptureInFlight = false
+        armedCaptureActive = false
+        armedCaptureMessage = message
+        if lastMessage.hasPrefix("Armado:") {
+            lastMessage = message
+        }
+        endArmedCaptureActivity()
+    }
+
+    private func beginArmedCaptureActivity() {
+        guard armedCaptureActivity == nil else {
+            return
+        }
+        armedCaptureActivity = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiatedAllowingIdleSystemSleep, .latencyCritical],
+            reason: "Screening Automation armed capture"
+        )
+        DiagnosticLog.write("armed capture activity started")
+    }
+
+    private func endArmedCaptureActivity() {
+        guard let armedCaptureActivity else {
+            return
+        }
+        ProcessInfo.processInfo.endActivity(armedCaptureActivity)
+        self.armedCaptureActivity = nil
+        DiagnosticLog.write("armed capture activity ended")
+    }
+
+    nonisolated static func performCapture(request: CaptureRequest) -> Result<URL, Error> {
         let folderURL = URL(fileURLWithPath: request.outputFolderPath, isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
@@ -110,8 +297,24 @@ final class CaptureManager: ObservableObject {
             ]
             process.standardError = errorPipe
             process.standardOutput = outputPipe
+            let processFinished = DispatchSemaphore(value: 0)
+            process.terminationHandler = { _ in
+                processFinished.signal()
+            }
             try process.run()
-            process.waitUntilExit()
+            guard processFinished.wait(timeout: .now() + 12) == .success else {
+                process.terminate()
+                if processFinished.wait(timeout: .now() + 1) == .timedOut, process.isRunning {
+                    kill(process.processIdentifier, SIGKILL)
+                    _ = processFinished.wait(timeout: .now() + 1)
+                }
+                try? FileManager.default.removeItem(at: fileURL)
+                DiagnosticLog.write("screencapture timed out")
+                if captureWithFallbacks(request: request, fileURL: fileURL) {
+                    return .success(fileURL)
+                }
+                return .failure(CaptureError.processTimedOut)
+            }
 
             guard process.terminationStatus == 0 else {
                 let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
@@ -123,23 +326,62 @@ final class CaptureManager: ObservableObject {
                     .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
                     .filter { !$0.isEmpty }
                     .joined(separator: " ")
+                    .replacingOccurrences(of: request.outputFolderPath, with: "<output>")
                 DiagnosticLog.write("screencapture failed status=\(process.terminationStatus) details=\(details)")
-                if captureWithScreenCaptureKit(request: request, fileURL: fileURL) {
-                    DiagnosticLog.write("screen capture kit fallback succeeded file=\(fileURL.path)")
+                if captureWithFallbacks(request: request, fileURL: fileURL) {
                     return .success(fileURL)
                 }
-                DiagnosticLog.write("screen capture kit fallback failed")
-                if captureWithCoreGraphics(request: request, fileURL: fileURL) {
-                    DiagnosticLog.write("core graphics fallback succeeded file=\(fileURL.path)")
-                    return .success(fileURL)
-                }
-                DiagnosticLog.write("core graphics fallback failed")
                 return .failure(CaptureError.processFailed(process.terminationStatus, details))
             }
+
+            guard capturedFileIsValid(at: fileURL) else {
+                try? FileManager.default.removeItem(at: fileURL)
+                DiagnosticLog.write("screencapture produced invalid or blank image")
+                if captureWithFallbacks(request: request, fileURL: fileURL) {
+                    return .success(fileURL)
+                }
+                return .failure(CaptureError.invalidImage)
+            }
+            hardenCaptureFile(at: fileURL)
             return .success(fileURL)
         } catch {
             return .failure(error)
         }
+    }
+
+    nonisolated private static func captureWithFallbacks(request: CaptureRequest, fileURL: URL) -> Bool {
+        try? FileManager.default.removeItem(at: fileURL)
+        if captureWithScreenCaptureKit(request: request, fileURL: fileURL) {
+            hardenCaptureFile(at: fileURL)
+            DiagnosticLog.write("screen capture kit fallback succeeded file=\(fileURL.lastPathComponent)")
+            return true
+        }
+        DiagnosticLog.write("screen capture kit fallback failed")
+        if captureWithCoreGraphics(request: request, fileURL: fileURL) {
+            hardenCaptureFile(at: fileURL)
+            DiagnosticLog.write("core graphics fallback succeeded file=\(fileURL.lastPathComponent)")
+            return true
+        }
+        DiagnosticLog.write("core graphics fallback failed")
+        return false
+    }
+
+    nonisolated private static func capturedFileIsValid(at fileURL: URL) -> Bool {
+        guard let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil),
+              CGImageSourceGetCount(source) > 0,
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
+              image.width > 0,
+              image.height > 0 else {
+            return false
+        }
+        return !CaptureImageInspector.isLikelyBlank(image)
+    }
+
+    nonisolated static func hardenCaptureFile(at fileURL: URL) {
+        try? FileManager.default.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: fileURL.path
+        )
     }
 
     nonisolated private static func captureWithScreenCaptureKit(request: CaptureRequest, fileURL: URL) -> Bool {
@@ -244,21 +486,23 @@ enum CaptureImageInspector {
         context.interpolationQuality = .none
         context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
 
-        var minValue = UInt8.max
-        var maxValue = UInt8.min
-        var brightPixels = 0
+        var visiblePixels = 0
+        var nonBlackPixels = 0
         for index in stride(from: 0, to: pixels.count, by: bytesPerPixel) {
             let red = pixels[index]
             let green = pixels[index + 1]
             let blue = pixels[index + 2]
-            minValue = min(minValue, red, green, blue)
-            maxValue = max(maxValue, red, green, blue)
-            if Int(red) + Int(green) + Int(blue) > 18 {
-                brightPixels += 1
+            let alpha = pixels[index + 3]
+            guard alpha > 2 else {
+                continue
+            }
+            visiblePixels += 1
+            if Int(red) + Int(green) + Int(blue) > 6 {
+                nonBlackPixels += 1
             }
         }
 
-        return maxValue <= 8 || (maxValue - minValue <= 3 && brightPixels < 4)
+        return visiblePixels == 0 || nonBlackPixels == 0
     }
 }
 

@@ -159,6 +159,64 @@ struct SettingsView: View {
                         .frame(width: 48, alignment: .trailing)
                 }
                 Slider(value: $settings.hoverGestureTimeoutSeconds, in: 0.8...5.0, step: 0.1)
+
+                Divider()
+
+                HStack {
+                    Text("Modo armado")
+                    Spacer()
+                    Text(captureManager.armedCaptureActive ? "Activo" : "Inactivo")
+                        .foregroundStyle(captureManager.armedCaptureActive ? .green : .secondary)
+                }
+
+                HStack {
+                    Text("Espera")
+                    Spacer()
+                    Text("\(settings.armedCaptureDelaySeconds, specifier: "%.1f") s")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 56, alignment: .trailing)
+                }
+                Slider(value: $settings.armedCaptureDelaySeconds, in: 2.0...60.0, step: 1.0)
+                    .disabled(captureManager.armedCaptureActive)
+
+                HStack {
+                    Text("Intervalo")
+                    Spacer()
+                    Text("\(settings.armedCaptureIntervalSeconds, specifier: "%.1f") s")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 56, alignment: .trailing)
+                }
+                Slider(value: $settings.armedCaptureIntervalSeconds, in: 0.5...30.0, step: 0.5)
+                    .disabled(captureManager.armedCaptureActive)
+
+                Stepper(
+                    "Capturas: \(settings.armedCaptureCount)",
+                    value: $settings.armedCaptureCount,
+                    in: 1...120
+                )
+                .disabled(captureManager.armedCaptureActive)
+
+                HStack {
+                    Button {
+                        if captureManager.armedCaptureActive {
+                            captureManager.cancelArmedBurst()
+                        } else {
+                            captureManager.startArmedBurst()
+                        }
+                    } label: {
+                        Label(
+                            captureManager.armedCaptureActive ? "Cancelar" : "Armar rafaga",
+                            systemImage: captureManager.armedCaptureActive ? "stop.circle" : "timer"
+                        )
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(settings.selectedRegion == nil)
+
+                    Text(captureManager.armedCaptureMessage)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
             }
             .padding(6)
         }
@@ -182,14 +240,14 @@ struct SettingsView: View {
                 }
                 Divider()
                 PermissionRow(
-                    title: "Activadores de raton",
-                    allowed: accessibilityReady,
+                    title: "Monitorizacion de entrada",
+                    allowed: inputMonitoringReady,
                     requestTitle: "Solicitar",
                     requestAction: {
-                        controller.eventMonitor.requestAccessibilityPermission()
+                        controller.eventMonitor.requestInputMonitoringPermission()
                         permissions.refresh()
                     },
-                    settingsAction: controller.eventMonitor.openAccessibilitySettings
+                    settingsAction: controller.eventMonitor.openInputMonitoringSettings
                 )
                 PermissionRow(
                     title: "Captura de pantalla",
@@ -262,15 +320,15 @@ struct SettingsView: View {
     }
 
     private var permissionsReady: Bool {
-        accessibilityReady && captureReady
+        inputMonitoringReady && captureReady
     }
 
-    private var accessibilityReady: Bool {
-        permissions.accessibilityAllowed || eventMonitor.isRunning
+    private var inputMonitoringReady: Bool {
+        permissions.inputMonitoringAllowed
     }
 
     private var captureReady: Bool {
-        permissions.screenCaptureAllowed || captureManager.lastCaptureSucceeded
+        permissions.screenCaptureAllowed
     }
 }
 

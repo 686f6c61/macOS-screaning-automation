@@ -6,7 +6,7 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -17,62 +17,185 @@ concurrency:
 
 jobs:
   release:
-    name: Build and publish release
+    name: Sign, notarize and publish
     runs-on: macos-latest
-    env:
-      GH_TOKEN: ${{ github.token }}
-      SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
-      DOWNLOAD_URL_PREFIX: https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/
+    environment: release
+    permissions:
+      contents: write
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
-      - name: Validate secret
-        run: |
-          if [[ -z "${SPARKLE_PRIVATE_KEY}" ]]; then
-            echo "::error::Missing SPARKLE_PRIVATE_KEY repository secret"
-            exit 1
-          fi
-
-      - name: Validate tag matches bundle version
+      - name: Validate release boundary
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           PLIST_VERSION="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' Resources/Info.plist)"
           if [[ "$VERSION" != "$PLIST_VERSION" ]]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match CFBundleShortVersionString $PLIST_VERSION"
+            echo "::error::Tag $GITHUB_REF_NAME does not match bundle version $PLIST_VERSION"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Release tags must point to a commit reachable from main"
+            exit 1
+          fi
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "::error::Release $GITHUB_REF_NAME already exists and will not be replaced"
             exit 1
           fi
 
-      - name: Build release archive
+      - name: Validate release secrets
+        env:
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          DEVELOPER_ID_APPLICATION_P12: ${{ secrets.DEVELOPER_ID_APPLICATION_P12 }}
+          DEVELOPER_ID_APPLICATION_PASSWORD: ${{ secrets.DEVELOPER_ID_APPLICATION_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          for variable in \
+            APPLE_APP_PASSWORD \
+            APPLE_ID \
+            APPLE_TEAM_ID \
+            DEVELOPER_ID_APPLICATION_P12 \
+            DEVELOPER_ID_APPLICATION_PASSWORD \
+            KEYCHAIN_PASSWORD \
+            SPARKLE_PRIVATE_KEY; do
+            if [[ -z "${!variable}" ]]; then
+              echo "::error::Missing release environment secret $variable"
+              exit 1
+            fi
+          done
+
+      - name: Test release source
+        run: |
+          swift test -Xswiftc -warnings-as-errors
+          swift build -c release -Xswiftc -warnings-as-errors
+
+      - name: Import Developer ID certificate
+        env:
+          DEVELOPER_ID_APPLICATION_P12: ${{ secrets.DEVELOPER_ID_APPLICATION_P12 }}
+          DEVELOPER_ID_APPLICATION_PASSWORD: ${{ secrets.DEVELOPER_ID_APPLICATION_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/screening-automation-signing.keychain-db"
+          CERTIFICATE_PATH="$RUNNER_TEMP/developer-id.p12"
+          printf '%s' "$DEVELOPER_ID_APPLICATION_P12" | /usr/bin/base64 -D > "$CERTIFICATE_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" \
+            -P "$DEVELOPER_ID_APPLICATION_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -s \
+            -k "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_PATH"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep 'Developer ID Application:'
+          rm -f "$CERTIFICATE_PATH"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
+      - name: Build Developer ID app
+        env:
+          RELEASE_BUILD: "1"
+        run: ./scripts/build_app.sh
+
+      - name: Notarize and staple
+        env:
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: ./scripts/notarize_app.sh
+
+      - name: Package release archive
+        env:
+          SKIP_BUILD: "1"
         run: ./scripts/package_release.sh
 
-      - name: Generate Sparkle appcast
+      - name: Generate signed Sparkle appcast
+        env:
+          DOWNLOAD_URL_PREFIX: https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: ./scripts/generate_appcast.sh releases
 
-      - name: Validate artifacts
+      - name: Generate Homebrew cask
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ./scripts/generate_cask.sh \
+            "releases/Screening-Automation-${VERSION}-arm64.zip" \
+            releases/screening-automation.rb
+
+      - name: Validate signed artifacts
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           ZIP="releases/Screening-Automation-${VERSION}-arm64.zip"
+          APP=".build/release/Screening Automation.app"
           test -f "$ZIP"
           test -f releases/appcast.xml
-          shasum -a 256 "$ZIP"
-          xmllint --noout releases/appcast.xml
+          test -f releases/screening-automation.rb
           unzip -t "$ZIP" >/dev/null
+          xmllint --noout releases/appcast.xml
+          grep -q 'sparkle-signatures:' releases/appcast.xml
+          test "$(xmllint --xpath 'count(/rss/channel/item)' releases/appcast.xml)" = "1"
+          if grep -q '<sparkle:deltas>' releases/appcast.xml; then
+            echo "::error::Appcast must not reference unpublished delta assets"
+            exit 1
+          fi
+          if grep -q '/releases/latest/download/' releases/appcast.xml; then
+            echo "::error::Signed appcast assets must use immutable tag URLs"
+            exit 1
+          fi
+          grep -q "/releases/download/${GITHUB_REF_NAME}/Screening-Automation-${VERSION}-arm64.zip" releases/appcast.xml
+          printf '%s' "$SPARKLE_PRIVATE_KEY" \
+            | .build/artifacts/sparkle/Sparkle/bin/sign_update \
+                --verify \
+                --ed-key-file - \
+                releases/appcast.xml
+          codesign --verify --deep --strict "$APP"
+          codesign -d --verbose=4 "$APP" 2>&1 | grep 'Authority=Developer ID Application:'
+          codesign -d --verbose=4 "$APP" 2>&1 | grep -E 'flags=.*runtime'
+          xcrun stapler validate "$APP"
+          spctl --assess --type execute --verbose=4 "$APP"
+          ruby -c releases/screening-automation.rb
+          EXPECTED_SHA="$(shasum -a 256 "$ZIP" | awk '{print $1}')"
+          CASK_SHA="$(awk -F '"' '/^[[:space:]]*sha256/ {print $2}' releases/screening-automation.rb)"
+          test "$EXPECTED_SHA" = "$CASK_SHA"
 
-      - name: Publish GitHub release
+      - name: Publish immutable-ready draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           ZIP="releases/Screening-Automation-${VERSION}-arm64.zip"
           NOTES="releases/Screening-Automation-${VERSION}-arm64.md"
+          gh release create "$GITHUB_REF_NAME" \
+            "$ZIP" \
+            releases/appcast.xml \
+            "$NOTES" \
+            releases/screening-automation.rb \
+            --draft \
+            --title "Screening Automation ${VERSION}" \
+            --notes-file "$NOTES"
+          gh release edit "$GITHUB_REF_NAME" --draft=false
 
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "$ZIP" releases/appcast.xml "$NOTES" --clobber
-            gh release edit "$GITHUB_REF_NAME" \
-              --title "Screening Automation ${VERSION}" \
-              --notes-file "$NOTES"
-          else
-            gh release create "$GITHUB_REF_NAME" "$ZIP" releases/appcast.xml "$NOTES" \
-              --title "Screening Automation ${VERSION}" \
-              --notes-file "$NOTES"
+      - name: Remove temporary keychain
+        if: always()
+        env:
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          if [[ -n "${KEYCHAIN_PATH:-}" && -f "$KEYCHAIN_PATH" ]]; then
+            security delete-keychain "$KEYCHAIN_PATH"
           fi

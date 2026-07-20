@@ -9,9 +9,12 @@ if [[ ! -x "$SPARKLE_BIN/generate_appcast" ]]; then
   swift build -c release >/dev/null
 fi
 
-ARGS=()
+ARGS=(--maximum-versions 1 --maximum-deltas 0)
 if [[ -n "${DOWNLOAD_URL_PREFIX:-}" ]]; then
-  ARGS+=(--download-url-prefix "$DOWNLOAD_URL_PREFIX")
+  ARGS+=(
+    --download-url-prefix "$DOWNLOAD_URL_PREFIX"
+    --release-notes-url-prefix "${RELEASE_NOTES_URL_PREFIX:-$DOWNLOAD_URL_PREFIX}"
+  )
 fi
 if [[ -n "${SPARKLE_PRIVATE_KEY:-}" ]]; then
   printf "%s" "$SPARKLE_PRIVATE_KEY" | "$SPARKLE_BIN/generate_appcast" --ed-key-file - "${ARGS[@]}" "$UPDATES_DIR"

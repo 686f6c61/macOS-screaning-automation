@@ -5,18 +5,35 @@ import ScreenCaptureKit
 
 @MainActor
 final class PermissionStatus: ObservableObject {
-    @Published private(set) var accessibilityAllowed = AXIsProcessTrusted()
-    @Published private(set) var screenCaptureAllowed = ScreenCapturePermission.allowed
+    typealias PermissionProbe = @Sendable () -> Bool
 
+    @Published private(set) var inputMonitoringAllowed: Bool
+    @Published private(set) var screenCaptureAllowed: Bool
+
+    private let inputMonitoringProbe: PermissionProbe
+    private let screenCapturePreflightProbe: PermissionProbe
+    private let screenCaptureAccessProbe: PermissionProbe
     private var refreshTimer: Timer?
-    private var lastLoggedAccessibilityAllowed: Bool?
+    private var lastLoggedInputMonitoringAllowed: Bool?
     private var lastLoggedScreenCaptureAllowed: Bool?
     private var screenCaptureProbeAllowed = false
     private var screenCaptureProbeInFlight = false
     private var lastScreenCaptureProbeDate = Date.distantPast
 
+    init(
+        inputMonitoringProbe: @escaping PermissionProbe = { InputMonitoringPermission.allowed },
+        screenCapturePreflightProbe: @escaping PermissionProbe = { ScreenCapturePermission.allowed },
+        screenCaptureAccessProbe: @escaping PermissionProbe = { ScreenCapturePermission.probeAccess() }
+    ) {
+        self.inputMonitoringProbe = inputMonitoringProbe
+        self.screenCapturePreflightProbe = screenCapturePreflightProbe
+        self.screenCaptureAccessProbe = screenCaptureAccessProbe
+        inputMonitoringAllowed = inputMonitoringProbe()
+        screenCaptureAllowed = screenCapturePreflightProbe()
+    }
+
     var allAllowed: Bool {
-        accessibilityAllowed && screenCaptureAllowed
+        inputMonitoringAllowed && screenCaptureAllowed
     }
 
     var summary: String {
@@ -41,18 +58,18 @@ final class PermissionStatus: ObservableObject {
     }
 
     func refresh() {
-        let nextAccessibilityAllowed = AXIsProcessTrusted()
-        let preflightScreenCaptureAllowed = ScreenCapturePermission.allowed
+        let nextInputMonitoringAllowed = inputMonitoringProbe()
+        let preflightScreenCaptureAllowed = screenCapturePreflightProbe()
         let nextScreenCaptureAllowed = preflightScreenCaptureAllowed || screenCaptureProbeAllowed
-        if lastLoggedAccessibilityAllowed != nextAccessibilityAllowed ||
+        if lastLoggedInputMonitoringAllowed != nextInputMonitoringAllowed ||
             lastLoggedScreenCaptureAllowed != nextScreenCaptureAllowed {
-            DiagnosticLog.write("permissions refresh ax=\(nextAccessibilityAllowed) screen=\(nextScreenCaptureAllowed) preflight=\(preflightScreenCaptureAllowed) probe=\(screenCaptureProbeAllowed)")
-            lastLoggedAccessibilityAllowed = nextAccessibilityAllowed
+            DiagnosticLog.write("permissions refresh input=\(nextInputMonitoringAllowed) screen=\(nextScreenCaptureAllowed) preflight=\(preflightScreenCaptureAllowed) probe=\(screenCaptureProbeAllowed)")
+            lastLoggedInputMonitoringAllowed = nextInputMonitoringAllowed
             lastLoggedScreenCaptureAllowed = nextScreenCaptureAllowed
         }
 
-        if accessibilityAllowed != nextAccessibilityAllowed {
-            accessibilityAllowed = nextAccessibilityAllowed
+        if inputMonitoringAllowed != nextInputMonitoringAllowed {
+            inputMonitoringAllowed = nextInputMonitoringAllowed
         }
         if screenCaptureAllowed != nextScreenCaptureAllowed {
             screenCaptureAllowed = nextScreenCaptureAllowed
@@ -75,8 +92,9 @@ final class PermissionStatus: ObservableObject {
 
         screenCaptureProbeInFlight = true
         lastScreenCaptureProbeDate = now
+        let screenCaptureAccessProbe = screenCaptureAccessProbe
         DispatchQueue.global(qos: .utility).async {
-            let allowed = ScreenCapturePermission.probeAccess()
+            let allowed = screenCaptureAccessProbe()
             DispatchQueue.main.async {
                 self.screenCaptureProbeInFlight = false
                 if self.screenCaptureProbeAllowed != allowed {
@@ -86,6 +104,21 @@ final class PermissionStatus: ObservableObject {
                 self.refresh()
             }
         }
+    }
+}
+
+enum InputMonitoringPermission {
+    static var allowed: Bool {
+        CGPreflightListenEventAccess()
+    }
+
+    @discardableResult
+    static func request() -> Bool {
+        CGRequestListenEventAccess()
+    }
+
+    static func openSettings() {
+        openPrivacyPane(anchor: "Privacy_ListenEvent")
     }
 }
 
@@ -111,31 +144,7 @@ enum ScreenCapturePermission {
             return false
         }
 
-        guard shareableContentIsAvailable() else {
-            return false
-        }
-        guard #available(macOS 15.2, *) else {
-            return true
-        }
-
-        let semaphore = DispatchSemaphore(value: 0)
-        let result = ScreenCaptureKitImageResult()
-        SCScreenshotManager.captureImage(in: CGRect(x: 0, y: 0, width: 1, height: 1)) { image, error in
-            result.set(image: image, error: error)
-            semaphore.signal()
-        }
-
-        guard semaphore.wait(timeout: .now() + 5) == .success else {
-            DiagnosticLog.write("screen capture permission probe timed out")
-            return false
-        }
-        if let errorDescription = result.errorDescription {
-            DiagnosticLog.write("screen capture permission probe error=\(errorDescription)")
-        }
-        guard let image = result.image else {
-            return false
-        }
-        return !CaptureImageInspector.isLikelyBlank(image)
+        return shareableContentIsAvailable()
     }
 
     @available(macOS 12.3, *)

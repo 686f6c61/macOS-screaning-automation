@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.3.3 - 2026-07-20
+
+- Aniadido modo armado con espera, intervalo y numero limitado de capturas.
+- Blindadas cancelacion y reactivacion mediante IDs de sesion y operacion.
+- Corregida la UI para consultar Monitorizacion de entrada en lugar de Accesibilidad.
+- Aniadido reintento automatico del event tap al conceder el permiso y reiniciar la app.
+- Eliminado el sondeo de permiso basado en un unico pixel negro.
+- Validada la imagen producida por `screencapture` y aniadido timeout con fallbacks.
+- Reducidas rutas y coordenadas de logs; directorio y archivos usan `0700/0600`.
+- Forzadas las capturas nuevas a `0600` y anadida redaccion defensiva de rutas.
+- Eliminado una vez el log historico que podia contener rutas de versiones antiguas.
+- Aniadidas quince pruebas para ajustes, permisos, activadores, coordenadas, imagen, privacidad y concurrencia.
+- Corregido `Probar activador` para que la simulacion no sea descartada como clics duplicados.
+- Actualizado Sparkle a `2.9.4` y activada la firma EdDSA del feed y notas.
+- Limitado el appcast a una version completa, sin deltas no publicados ni URLs mutables.
+- Endurecido el release con Developer ID, Hardened Runtime, timestamp y notarizacion.
+- Eliminado `--clobber`; releases, tags y Environment de produccion quedan protegidos.
+- Sustituido `sha256 :no_check` por checksums versionados en Homebrew.
+- Aniadidos Dependabot, `SECURITY.md`, `CODEOWNERS` y licencia MIT.
+- Activado CodeQL con consultas extendidas para Swift, Actions y Ruby.
+- Subida la version del bundle a `0.3.3` (`CFBundleVersion` 6).
+
 ## 0.3.2 - 2026-05-28
 
 - Redisenado el selector de zona con overlay transparente, lineas discontinuas y contorno mucho mas sutil.

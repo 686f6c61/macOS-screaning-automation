@@ -19,15 +19,29 @@ struct CaptureRegion: Codable, Equatable {
 
     static func fromSelection(localRect: CGRect, on screen: NSScreen) -> CaptureRegion {
         let screenRect = screen.frame
+        let virtualMaxY = NSScreen.screens.map(\.frame.maxY).max() ?? screenRect.maxY
+        return fromSelection(
+            localRect: localRect,
+            screenFrame: screenRect,
+            virtualMaxY: virtualMaxY,
+            displayName: screen.localizedName
+        )
+    }
+
+    static func fromSelection(
+        localRect: CGRect,
+        screenFrame: CGRect,
+        virtualMaxY: CGFloat,
+        displayName: String,
+        createdAt: Date = Date()
+    ) -> CaptureRegion {
         let globalRect = CGRect(
-            x: screenRect.minX + localRect.minX,
-            y: screenRect.minY + localRect.minY,
+            x: screenFrame.minX + localRect.minX,
+            y: screenFrame.minY + localRect.minY,
             width: localRect.width,
             height: localRect.height
         )
-        let virtualMaxY = NSScreen.screens.map(\.frame.maxY).max() ?? globalRect.maxY
         let captureY = virtualMaxY - globalRect.maxY
-        let displayName = screen.localizedName
 
         return CaptureRegion(
             x: Int(globalRect.minX.rounded()),
@@ -35,7 +49,7 @@ struct CaptureRegion: Codable, Equatable {
             width: max(1, Int(globalRect.width.rounded())),
             height: max(1, Int(globalRect.height.rounded())),
             displayName: displayName,
-            createdAt: Date()
+            createdAt: createdAt
         )
     }
 }
@@ -88,12 +102,16 @@ private struct PersistedSettings: Codable {
     var hoverGestureEnabled: Bool?
     var hoverGestureCorner: HoverGestureCorner?
     var hoverGestureTimeoutSeconds: Double?
+    var armedCaptureDelaySeconds: Double?
+    var armedCaptureIntervalSeconds: Double?
+    var armedCaptureCount: Int?
 }
 
 @MainActor
 final class AppSettings: ObservableObject {
     private let defaultsKey = "ScreeningAutomation.Settings.v1"
     private let legacyDefaultsKey = "MonitorScreening.Settings.v1"
+    private let defaults: UserDefaults
 
     @Published var selectedRegion: CaptureRegion? {
         didSet { save() }
@@ -135,8 +153,20 @@ final class AppSettings: ObservableObject {
         didSet { save() }
     }
 
-    init() {
-        let defaults = UserDefaults.standard
+    @Published var armedCaptureDelaySeconds: Double {
+        didSet { save() }
+    }
+
+    @Published var armedCaptureIntervalSeconds: Double {
+        didSet { save() }
+    }
+
+    @Published var armedCaptureCount: Int {
+        didSet { save() }
+    }
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         if let data = defaults.data(forKey: defaultsKey) ?? defaults.data(forKey: legacyDefaultsKey),
            let persisted = try? JSONDecoder().decode(PersistedSettings.self, from: data) {
             selectedRegion = persisted.selectedRegion
@@ -149,6 +179,9 @@ final class AppSettings: ObservableObject {
             hoverGestureEnabled = persisted.hoverGestureEnabled ?? true
             hoverGestureCorner = persisted.hoverGestureCorner ?? .topLeft
             hoverGestureTimeoutSeconds = Self.clampHoverGestureTimeoutSeconds(persisted.hoverGestureTimeoutSeconds ?? 2.2)
+            armedCaptureDelaySeconds = Self.clampArmedCaptureDelaySeconds(persisted.armedCaptureDelaySeconds ?? 5.0)
+            armedCaptureIntervalSeconds = Self.clampArmedCaptureIntervalSeconds(persisted.armedCaptureIntervalSeconds ?? 2.0)
+            armedCaptureCount = Self.clampArmedCaptureCount(persisted.armedCaptureCount ?? 6)
         } else {
             selectedRegion = nil
             outputFolderPath = Self.defaultOutputFolder.path
@@ -160,6 +193,9 @@ final class AppSettings: ObservableObject {
             hoverGestureEnabled = true
             hoverGestureCorner = .topLeft
             hoverGestureTimeoutSeconds = 2.2
+            armedCaptureDelaySeconds = 5.0
+            armedCaptureIntervalSeconds = 2.0
+            armedCaptureCount = 6
         }
     }
 
@@ -183,6 +219,18 @@ final class AppSettings: ObservableObject {
 
     static func clampHoverGestureTimeoutSeconds(_ value: Double) -> Double {
         min(max(value, 0.8), 5.0)
+    }
+
+    static func clampArmedCaptureDelaySeconds(_ value: Double) -> Double {
+        min(max(value, 2.0), 60.0)
+    }
+
+    static func clampArmedCaptureIntervalSeconds(_ value: Double) -> Double {
+        min(max(value, 0.5), 30.0)
+    }
+
+    static func clampArmedCaptureCount(_ value: Int) -> Int {
+        min(max(value, 1), 120)
     }
 
     func chooseOutputFolder() {
@@ -225,11 +273,14 @@ final class AppSettings: ObservableObject {
             triggersPaused: triggersPaused,
             hoverGestureEnabled: hoverGestureEnabled,
             hoverGestureCorner: hoverGestureCorner,
-            hoverGestureTimeoutSeconds: hoverGestureTimeoutSeconds
+            hoverGestureTimeoutSeconds: hoverGestureTimeoutSeconds,
+            armedCaptureDelaySeconds: armedCaptureDelaySeconds,
+            armedCaptureIntervalSeconds: armedCaptureIntervalSeconds,
+            armedCaptureCount: armedCaptureCount
         )
         guard let data = try? JSONEncoder().encode(persisted) else {
             return
         }
-        UserDefaults.standard.set(data, forKey: defaultsKey)
+        defaults.set(data, forKey: defaultsKey)
     }
 }

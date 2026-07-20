@@ -1,6 +1,6 @@
 cask "screening-automation" do
   version "0.3.2"
-  sha256 :no_check
+  sha256 "b31be726d8bb6f7bf3fbcfcca573c7d0477b6692d9620ed83e2ce87a6913593c"
 
   url "https://github.com/686f6c61/macOS-screaning-automation/releases/download/v#{version}/Screening-Automation-#{version}-arm64.zip"
   name "Screening Automation"

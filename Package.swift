@@ -15,7 +15,7 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(url: "https://github.com/sparkle-project/Sparkle.git", from: "2.9.2")
+        .package(url: "https://github.com/sparkle-project/Sparkle.git", from: "2.9.4")
     ],
     targets: [
         .executableTarget(
@@ -26,6 +26,10 @@ let package = Package(
             linkerSettings: [
                 .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])
             ]
+        ),
+        .testTarget(
+            name: "ScreeningAutomationTests",
+            dependencies: ["ScreeningAutomation"]
         )
     ],
     swiftLanguageModes: [.v6]
