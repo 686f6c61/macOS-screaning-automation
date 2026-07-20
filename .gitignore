@@ -1,25 +1,56 @@
+# macOS, SwiftPM and Xcode output
 .DS_Store
 ._*
-/.build
-/Packages
-xcuserdata/
+/.build/
+/Packages/
+/.swiftpm/
 DerivedData/
-.swiftpm/configuration/registries.json
-.swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
+xcuserdata/
+*.xcuserstate
+*.xcresult
+*.dSYM
+
+# Local editor and tool state
+.idea/
+.vscode/
+.cursor/
+.claude/
+.codex/
+*.swp
+*.tmp
+*.log
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+.envrc
+.direnv/
 .netrc
+.npmrc
+.pypirc
 
 # Generated release artifacts
-/releases
+/releases/
+*.app
+*.zip
 *.dmg
 *.pkg
 *.xcarchive
-*.dSYM
+appcast*.xml
 
 # Signing and notarization secrets
 sparkle_private_key*.txt
 *.p12
+*.pfx
+*.p8
+*.pem
 *.cer
+*.crt
 *.key
 *.mobileprovision
+*.provisionprofile
+*.keychain
+*.keychain-db
 notarytool-profile.json
 notarization-*.json

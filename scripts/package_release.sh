@@ -25,7 +25,7 @@ fi
 
 (
   cd "$(dirname "$APP_DIR")"
-  /usr/bin/ditto -c -k --keepParent "$(basename "$APP_DIR")" "$ARCHIVE_PATH"
+  /usr/bin/ditto -c -k --norsrc --keepParent "$(basename "$APP_DIR")" "$ARCHIVE_PATH"
 )
 
 shasum -a 256 "$ARCHIVE_PATH"

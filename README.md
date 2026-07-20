@@ -9,7 +9,7 @@ mostrar el selector durante cada captura.
 
 ## Estado
 
-- Version preparada en `main`: `0.3.3` (`CFBundleVersion` 6).
+- Version preparada en `main`: `0.3.4` (`CFBundleVersion` 7).
 - Ultima version publica: `0.3.2`.
 - Bundle ID: `tech.686f6c61.screening-automation`.
 - macOS minimo: `13.0`.
@@ -18,7 +18,7 @@ mostrar el selector durante cada captura.
 - Updater: Sparkle `2.9.4` (ultima version estable comprobada el 2026-07-20),
   archivos y feed firmados con EdDSA.
 - Appcast: `https://github.com/686f6c61/macOS-screaning-automation/releases/latest/download/appcast.xml`.
-- Las releases hasta `v0.3.2` tienen firma adhoc y no estan notarizadas. `v0.3.3`
+- Las releases hasta `v0.3.2` tienen firma adhoc y no estan notarizadas. `v0.3.4`
   solo debe etiquetarse cuando el Environment `release` tenga Developer ID y
   credenciales de notarizacion validos.
 
@@ -41,7 +41,7 @@ brew upgrade --cask screening-automation
 El tap real es
 `686f6c61/homebrew-macOS-screaning-automation`. Su CI consulta cada seis horas
 el cask incluido en la ultima release inmutable y conserva el SHA-256 publicado.
-Mientras `v0.3.3` no este firmada y notarizada, la distribucion publica disponible
+Mientras `v0.3.4` no este firmada y notarizada, la distribucion publica disponible
 puede ser rechazada por Gatekeeper.
 
 ## Uso
@@ -158,6 +158,7 @@ protegidos y GitHub Immutable Releases esta habilitado.
 - Los logs no guardan carpeta, coordenadas ni ruta completa de las capturas.
 - `~/Library/Logs/ScreeningAutomation` usa `0700` y sus logs `0600`.
 - Cada PNG/JPG nuevo se fuerza a permisos privados `0600`.
+- `.gitignore` excluye configuracion local, artefactos, keychains y material de firma.
 - Secret scanning, push protection, Dependabot, CodeQL y reporte privado estan
   activos.
 

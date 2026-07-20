@@ -19,7 +19,7 @@ WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/screening-automation-notary.XXXXXX")"
 trap 'rm -rf "$WORK_DIR"' EXIT
 NOTARY_ARCHIVE="$WORK_DIR/Screening-Automation-notary.zip"
 
-/usr/bin/ditto -c -k --keepParent "$APP_DIR" "$NOTARY_ARCHIVE"
+/usr/bin/ditto -c -k --norsrc --keepParent "$APP_DIR" "$NOTARY_ARCHIVE"
 xcrun notarytool submit "$NOTARY_ARCHIVE" \
   --apple-id "$APPLE_ID" \
   --team-id "$APPLE_TEAM_ID" \

@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.3 - 2026-07-20
+## 0.3.4 - 2026-07-20
 
 - Aniadido modo armado con espera, intervalo y numero limitado de capturas.
 - Blindadas cancelacion y reactivacion mediante IDs de sesion y operacion.
@@ -20,7 +20,9 @@
 - Sustituido `sha256 :no_check` por checksums versionados en Homebrew.
 - Aniadidos Dependabot, `SECURITY.md`, `CODEOWNERS` y licencia MIT.
 - Activado CodeQL con consultas extendidas para Swift, Actions y Ruby.
-- Subida la version del bundle a `0.3.3` (`CFBundleVersion` 6).
+- Reforzado `.gitignore` para excluir configuracion local, artefactos y material de firma.
+- Eliminados metadatos AppleDouble de los ZIP de distribucion y notarizacion.
+- Subida la version del bundle a `0.3.4` (`CFBundleVersion` 7).
 
 ## 0.3.2 - 2026-05-28
 
