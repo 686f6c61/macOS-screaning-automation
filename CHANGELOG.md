@@ -1,11 +1,14 @@
 # Changelog
 
-## 0.3.4 - 2026-10-10
+## 0.3.5 - 2026-10-10
 
 - Publicada con firma `adhoc` mediante la variable de repo
   `RELEASE_SIGNING_MODE=adhoc`; el modo `developer-id` (firma, notarizacion y
   Gatekeeper) se restaura cambiando esa variable cuando existan credenciales
   Apple.
+- `0.3.4` se preparo pero nunca se publico: su pipeline fallo porque Sparkle
+  `2.10` ya no firma el feed completo desde `generate_appcast` y el tag quedo
+  inutilizable bajo proteccion. Todos sus cambios se incluyen aqui.
 
 - Aniadido modo armado con espera, intervalo y numero limitado de capturas.
 - Blindadas cancelacion y reactivacion mediante IDs de sesion y operacion.
