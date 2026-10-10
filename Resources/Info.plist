@@ -36,10 +36,6 @@
     <string>https://github.com/686f6c61/macOS-screaning-automation/releases/latest/download/appcast.xml</string>
     <key>SUPublicEDKey</key>
     <string>0dhtcRk98v2QlBE8AgvYeGqIwKrxttgKZrWZUI9iijY=</string>
-    <key>SURequireSignedFeed</key>
-    <true/>
-    <key>SUVerifyUpdateBeforeExtraction</key>
-    <true/>
     <key>SUShowReleaseNotes</key>
     <true/>
     <key>SUAutomaticallyUpdate</key>

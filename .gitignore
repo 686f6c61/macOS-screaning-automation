@@ -16,6 +16,7 @@ xcuserdata/
 .cursor/
 .claude/
 .codex/
+.mimosa/
 *.swp
 *.tmp
 *.log

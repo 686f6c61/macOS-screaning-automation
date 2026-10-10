@@ -15,7 +15,7 @@ mostrar el selector durante cada captura.
 - macOS minimo: `13.0`.
 - Swift tools: `6.1`; Swift language mode: `6`.
 - Toolchain local verificado: Xcode `26.6`, Swift `6.3.3`.
-- Updater: Sparkle `2.9.4` (ultima version estable comprobada el 2026-07-20),
+- Updater: Sparkle `2.10.0` (ultima version estable comprobada el 2026-10-10),
   archivos y feed firmados con EdDSA.
 - Appcast: `https://github.com/686f6c61/macOS-screaning-automation/releases/latest/download/appcast.xml`.
 - Las releases hasta `v0.3.2` tienen firma adhoc y no estan notarizadas. `v0.3.4`
@@ -159,8 +159,7 @@ protegidos y GitHub Immutable Releases esta habilitado.
 - `~/Library/Logs/ScreeningAutomation` usa `0700` y sus logs `0600`.
 - Cada PNG/JPG nuevo se fuerza a permisos privados `0600`.
 - `.gitignore` excluye configuracion local, artefactos, keychains y material de firma.
-- Secret scanning, push protection, Dependabot, CodeQL y reporte privado estan
-  activos.
+- Secret scanning, push protection, CodeQL y reporte privado estan activos.
 
 Consulta [SECURITY.md](SECURITY.md) para reportar vulnerabilidades y
 [SECURITY_AUDIT.md](SECURITY_AUDIT.md) para la auditoria tecnica.

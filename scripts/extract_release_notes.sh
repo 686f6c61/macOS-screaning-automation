@@ -10,7 +10,7 @@ VERSION="${1#v}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 awk -v version="$VERSION" '
-  $0 == "## " version " - 2026-05-03" || $0 ~ ("^## " version "([[:space:]]|-|$)") {
+  $0 ~ ("^## " version "([[:space:]]|-|$)") {
     found = 1
     next
   }

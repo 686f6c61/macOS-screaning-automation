@@ -6,6 +6,8 @@
 - Blindadas cancelacion y reactivacion mediante IDs de sesion y operacion.
 - Corregida la UI para consultar Monitorizacion de entrada en lugar de Accesibilidad.
 - Aniadido reintento automatico del event tap al conceder el permiso y reiniciar la app.
+- Aniadido `isolated deinit` al monitor de eventos para invalidar el event tap si se libera sin `stop()`.
+- Acotada la actividad `latencyCritical` a los holds reales de esquina para reducir el impacto en bateria.
 - Eliminado el sondeo de permiso basado en un unico pixel negro.
 - Validada la imagen producida por `screencapture` y aniadido timeout con fallbacks.
 - Reducidas rutas y coordenadas de logs; directorio y archivos usan `0700/0600`.
@@ -13,12 +15,16 @@
 - Eliminado una vez el log historico que podia contener rutas de versiones antiguas.
 - Aniadidas quince pruebas para ajustes, permisos, activadores, coordenadas, imagen, privacidad y concurrencia.
 - Corregido `Probar activador` para que la simulacion no sea descartada como clics duplicados.
-- Actualizado Sparkle a `2.9.4` y activada la firma EdDSA del feed y notas.
+- Actualizado Sparkle a `2.10.0` y activada la firma EdDSA del feed y notas.
 - Limitado el appcast a una version completa, sin deltas no publicados ni URLs mutables.
+- El generador de appcast falla si falta la clave privada de Sparkle en lugar de publicar un feed sin firma.
 - Endurecido el release con Developer ID, Hardened Runtime, timestamp y notarizacion.
+- La notarizacion usa un perfil de llavero cuando esta disponible, sin contrasena en argv durante la espera.
 - Eliminado `--clobber`; releases, tags y Environment de produccion quedan protegidos.
 - Sustituido `sha256 :no_check` por checksums versionados en Homebrew.
-- Aniadidos Dependabot, `SECURITY.md`, `CODEOWNERS` y licencia MIT.
+- Aniadidos `SECURITY.md`, `CODEOWNERS` y licencia MIT.
+- Eliminada la configuracion de Dependabot; las actualizaciones de dependencias pasan a ser manuales.
+- Eliminadas las claves obsoletas de Sparkle 1 del `Info.plist` y el codigo muerto del extractor de notas.
 - Activado CodeQL con consultas extendidas para Swift, Actions y Ruby.
 - Reforzado `.gitignore` para excluir configuracion local, artefactos y material de firma.
 - Eliminados metadatos AppleDouble de los ZIP de distribucion y notarizacion.

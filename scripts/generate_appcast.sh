@@ -16,9 +16,9 @@ if [[ -n "${DOWNLOAD_URL_PREFIX:-}" ]]; then
     --release-notes-url-prefix "${RELEASE_NOTES_URL_PREFIX:-$DOWNLOAD_URL_PREFIX}"
   )
 fi
-if [[ -n "${SPARKLE_PRIVATE_KEY:-}" ]]; then
-  printf "%s" "$SPARKLE_PRIVATE_KEY" | "$SPARKLE_BIN/generate_appcast" --ed-key-file - "${ARGS[@]}" "$UPDATES_DIR"
-else
-  "$SPARKLE_BIN/generate_appcast" "${ARGS[@]}" "$UPDATES_DIR"
+if [[ -z "${SPARKLE_PRIVATE_KEY:-}" ]]; then
+  echo "error: SPARKLE_PRIVATE_KEY is required to sign the appcast" >&2
+  exit 1
 fi
+printf "%s" "$SPARKLE_PRIVATE_KEY" | "$SPARKLE_BIN/generate_appcast" --ed-key-file - "${ARGS[@]}" "$UPDATES_DIR"
 echo "$UPDATES_DIR/appcast.xml"

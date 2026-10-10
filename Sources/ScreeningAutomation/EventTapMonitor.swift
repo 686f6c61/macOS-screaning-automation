@@ -108,9 +108,18 @@ final class EventTapMonitor: ObservableObject {
         self.onTrigger = onTrigger
     }
 
+    isolated deinit {
+        if let runLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
+        }
+        if let eventTap {
+            CGEvent.tapEnable(tap: eventTap, enable: false)
+            CFMachPortInvalidate(eventTap)
+        }
+    }
+
     func start() {
         guard eventTap == nil else {
-            beginActivatorActivity()
             startCornerHoldTimer()
             refreshState()
             return
@@ -330,7 +339,6 @@ final class EventTapMonitor: ObservableObject {
         guard cornerHoldTimer == nil else {
             return
         }
-        beginActivatorActivity()
 
         let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
             Task { @MainActor in
@@ -409,6 +417,7 @@ final class EventTapMonitor: ObservableObject {
         if cornerHoldStartedAt == nil {
             cornerHoldStartedAt = now
             cornerHoldDidTrigger = false
+            beginActivatorActivity()
             lastEventDescription = "Puntero en \(settings.hoverGestureCorner.label) por CG polling"
             DiagnosticLog.write("corner hold started corner=\(settings.hoverGestureCorner.rawValue)")
         }
@@ -483,6 +492,7 @@ final class EventTapMonitor: ObservableObject {
     private func resetCornerHold() {
         cornerHoldStartedAt = nil
         cornerHoldDidTrigger = false
+        endActivatorActivity()
     }
 
     private func isInCorner(_ point: CGPoint, corner: HoverGestureCorner) -> Bool {
