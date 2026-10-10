@@ -10,6 +10,7 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  SIGNING_MODE: ${{ vars.RELEASE_SIGNING_MODE || 'developer-id' }}
 
 concurrency:
   group: release-${{ github.ref }}
@@ -59,14 +60,21 @@ jobs:
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: |
-          for variable in \
-            APPLE_APP_PASSWORD \
-            APPLE_ID \
-            APPLE_TEAM_ID \
-            DEVELOPER_ID_APPLICATION_P12 \
-            DEVELOPER_ID_APPLICATION_PASSWORD \
-            KEYCHAIN_PASSWORD \
-            SPARKLE_PRIVATE_KEY; do
+          if [[ "$SIGNING_MODE" == "developer-id" ]]; then
+            REQUIRED_SECRETS=(
+              APPLE_APP_PASSWORD
+              APPLE_ID
+              APPLE_TEAM_ID
+              DEVELOPER_ID_APPLICATION_P12
+              DEVELOPER_ID_APPLICATION_PASSWORD
+              KEYCHAIN_PASSWORD
+              SPARKLE_PRIVATE_KEY
+            )
+          else
+            REQUIRED_SECRETS=(SPARKLE_PRIVATE_KEY)
+            echo "::warning::SIGNING_MODE=adhoc: the artifact will not be notarized and Gatekeeper will require an explicit open. Set the repository variable RELEASE_SIGNING_MODE=developer-id to restore the hardened pipeline."
+          fi
+          for variable in "${REQUIRED_SECRETS[@]}"; do
             if [[ -z "${!variable}" ]]; then
               echo "::error::Missing release environment secret $variable"
               exit 1
@@ -79,6 +87,7 @@ jobs:
           swift build -c release -Xswiftc -warnings-as-errors
 
       - name: Import Developer ID certificate
+        if: env.SIGNING_MODE == 'developer-id'
         env:
           DEVELOPER_ID_APPLICATION_P12: ${{ secrets.DEVELOPER_ID_APPLICATION_P12 }}
           DEVELOPER_ID_APPLICATION_PASSWORD: ${{ secrets.DEVELOPER_ID_APPLICATION_PASSWORD }}
@@ -106,12 +115,13 @@ jobs:
           rm -f "$CERTIFICATE_PATH"
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
 
-      - name: Build Developer ID app
+      - name: Build app
         env:
-          RELEASE_BUILD: "1"
+          RELEASE_BUILD: ${{ env.SIGNING_MODE == 'developer-id' && '1' || '0' }}
         run: ./scripts/build_app.sh
 
       - name: Notarize and staple
+        if: env.SIGNING_MODE == 'developer-id'
         env:
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -165,10 +175,12 @@ jobs:
                 --ed-key-file - \
                 releases/appcast.xml
           codesign --verify --deep --strict "$APP"
-          codesign -d --verbose=4 "$APP" 2>&1 | grep 'Authority=Developer ID Application:'
-          codesign -d --verbose=4 "$APP" 2>&1 | grep -E 'flags=.*runtime'
-          xcrun stapler validate "$APP"
-          spctl --assess --type execute --verbose=4 "$APP"
+          if [[ "$SIGNING_MODE" == "developer-id" ]]; then
+            codesign -d --verbose=4 "$APP" 2>&1 | grep 'Authority=Developer ID Application:'
+            codesign -d --verbose=4 "$APP" 2>&1 | grep -E 'flags=.*runtime'
+            xcrun stapler validate "$APP"
+            spctl --assess --type execute --verbose=4 "$APP"
+          fi
           ruby -c releases/screening-automation.rb
           EXPECTED_SHA="$(shasum -a 256 "$ZIP" | awk '{print $1}')"
           CASK_SHA="$(awk -F '"' '/^[[:space:]]*sha256/ {print $2}' releases/screening-automation.rb)"

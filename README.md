@@ -9,20 +9,22 @@ mostrar el selector durante cada captura.
 
 ## Estado
 
-- Ultima version publica: `0.3.2` (2026-05-28). Es la que GitHub muestra como
-  `Latest` y la que instala Homebrew.
-- Version en preparacion en `main`: `0.3.4` (`CFBundleVersion` 7), sin publicar;
-  sus cambios estan en el changelog bajo `0.3.4 - Sin publicar`.
+- Ultima version publica: `0.3.4` (2026-10-10). Es la que GitHub muestra como
+  `Latest`, la que instala Homebrew y la que ofrece Sparkle al actualizar.
+- Version en `main`: `0.3.4` (`CFBundleVersion` 7), igual a la publicada.
+- Firma actual: `adhoc` (sin Developer ID ni notarizacion). macOS puede pedir
+  abrir la primera vez con clic derecho > Abrir. Las actualizaciones de Sparkle
+  no se ven afectadas: validan la firma EdDSA del ZIP, independiente de Apple.
 - Bundle ID: `tech.686f6c61.screening-automation`.
 - macOS minimo: `13.0`.
 - Swift tools: `6.1`; Swift language mode: `6`.
 - Updater: Sparkle `2.10.0` (ultima version estable comprobada el 2026-10-10),
   archivos y feed firmados con EdDSA.
 - Appcast: `https://github.com/686f6c61/macOS-screaning-automation/releases/latest/download/appcast.xml`.
-- Todas las releases publicadas hasta `v0.3.2` tienen firma adhoc y no estan
-  notarizadas. `v0.3.4` solo debe etiquetarse cuando el Environment `release`
-  tenga Developer ID y credenciales de notarizacion validos; el workflow falla
-  antes de publicar si falta alguno.
+- Para volver al pipeline endurecido: poner la variable de repo
+  `RELEASE_SIGNING_MODE=developer-id`, provisionar los secretos del Environment
+  `release` y etiquetar; el workflow exige Developer ID, notarizacion y
+  Gatekeeper, o falla.
 
 ## Instalacion
 
@@ -44,7 +46,8 @@ El tap real es
 `686f6c61/homebrew-macOS-screaning-automation`. Su CI consulta cada seis horas
 el cask incluido en la ultima release inmutable y conserva el SHA-256 publicado.
 Mientras no se publique una version firmada con Developer ID y notarizada, la
-distribucion publica (`0.3.2`) puede ser rechazada por Gatekeeper.
+distribucion publica (`0.3.4`, firma `adhoc`) puede ser rechazada por
+Gatekeeper; se abre con clic derecho > Abrir.
 
 ## Uso
 
@@ -109,14 +112,16 @@ plutil -lint Resources/Info.plist
 ## Releases
 
 `.github/workflows/release.yml` solo acepta tags `v*` que apunten a un commit
-alcanzable desde `main` y coincidan con `CFBundleShortVersionString`. El job:
+alcanzable desde `main` y coincidan con `CFBundleShortVersionString`. Con la
+variable de repo `RELEASE_SIGNING_MODE` (`developer-id` por defecto, `adhoc`
+explicito), el job:
 
 1. Espera aprobacion del Environment protegido `release`.
-2. Importa un certificado `Developer ID Application` en un keychain temporal.
-3. Firma la app y los componentes de Sparkle con Hardened Runtime y timestamp.
-4. Notariza con `notarytool`, adjunta el ticket y exige que Gatekeeper acepte.
-5. Firma ZIP, feed y notas con EdDSA; el feed usa URLs del tag y no anuncia deltas no publicados.
-6. Genera un cask con SHA-256 y publica un draft que pasa a release inmutable.
+2. En modo `developer-id`: importa un certificado `Developer ID Application`,
+   firma con Hardened Runtime y timestamp, notariza con `notarytool`, adjunta
+   el ticket y exige que Gatekeeper acepte.
+3. Firma ZIP, feed y notas con EdDSA; el feed usa URLs del tag y no anuncia deltas no publicados.
+4. Genera un cask con SHA-256 y publica un draft que pasa a release inmutable.
 
 Secretos del Environment `release`:
 

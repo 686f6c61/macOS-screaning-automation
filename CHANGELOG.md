@@ -1,6 +1,11 @@
 # Changelog
 
-## 0.3.4 - Sin publicar
+## 0.3.4 - 2026-10-10
+
+- Publicada con firma `adhoc` mediante la variable de repo
+  `RELEASE_SIGNING_MODE=adhoc`; el modo `developer-id` (firma, notarizacion y
+  Gatekeeper) se restaura cambiando esa variable cuando existan credenciales
+  Apple.
 
 - Aniadido modo armado con espera, intervalo y numero limitado de capturas.
 - Blindadas cancelacion y reactivacion mediante IDs de sesion y operacion.
