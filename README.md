@@ -159,7 +159,8 @@ protegidos y GitHub Immutable Releases esta habilitado.
 - `~/Library/Logs/ScreeningAutomation` usa `0700` y sus logs `0600`.
 - Cada PNG/JPG nuevo se fuerza a permisos privados `0600`.
 - `.gitignore` excluye configuracion local, artefactos, keychains y material de firma.
-- Secret scanning, push protection, CodeQL y reporte privado estan activos.
+- Secret scanning, push protection, Dependabot, CodeQL y reporte privado estan
+  activos.
 
 Consulta [SECURITY.md](SECURITY.md) para reportar vulnerabilidades y
 [SECURITY_AUDIT.md](SECURITY_AUDIT.md) para la auditoria tecnica.
