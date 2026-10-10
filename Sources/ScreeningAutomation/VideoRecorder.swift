@@ -56,27 +56,26 @@ final class VideoWriterSession: @unchecked Sendable {
         writer.add(input)
     }
 
+    /// Must be called on `queue` (the stream's sample handler queue).
     func append(_ sampleBuffer: CMSampleBuffer) {
-        queue.async {
-            guard self.writer.status == .writing else {
-                return
-            }
-            if !self.startedWriting {
-                self.writer.startWriting()
-                self.startedWriting = true
-            }
-            if !self.startedSession {
-                self.writer.startSession(atSourceTime: sampleBuffer.presentationTimeStamp)
-                self.startedSession = true
-            }
-            guard self.input.isReadyForMoreMediaData else {
-                return
-            }
-            self.input.append(sampleBuffer)
+        guard writer.status == .writing else {
+            return
         }
+        if !startedWriting {
+            writer.startWriting()
+            startedWriting = true
+        }
+        if !startedSession {
+            writer.startSession(atSourceTime: sampleBuffer.presentationTimeStamp)
+            startedSession = true
+        }
+        guard input.isReadyForMoreMediaData else {
+            return
+        }
+        input.append(sampleBuffer)
     }
 
-    func finish(completion: @escaping (Bool) -> Void) {
+    func finish(completion: @escaping @Sendable (Bool) -> Void) {
         queue.async {
             guard self.startedWriting else {
                 completion(false)
