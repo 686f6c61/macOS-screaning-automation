@@ -9,10 +9,9 @@ mostrar el selector durante cada captura.
 
 ## Estado
 
-- Ultima version publica: `0.3.5` (2026-10-10). Es la que GitHub muestra como
+- Ultima version publica: `0.4.0` (2026-10-11). Es la que GitHub muestra como
   `Latest`, la que instala Homebrew y la que ofrece Sparkle al actualizar.
-- Version en preparacion en `main`: `0.4.0` (`CFBundleVersion` 9), sin publicar;
-  sus cambios estan en el changelog bajo `0.4.0 - Sin publicar`.
+- Version en `main`: `0.4.0` (`CFBundleVersion` 9), igual a la publicada.
 - Firma actual: `adhoc` (sin Developer ID ni notarizacion). macOS puede pedir
   abrir la primera vez con clic derecho > Abrir. Las actualizaciones de Sparkle
   no se ven afectadas: validan la firma EdDSA del ZIP, independiente de Apple.
@@ -47,7 +46,7 @@ El tap real es
 `686f6c61/homebrew-macOS-screaning-automation`. Su CI consulta cada seis horas
 el cask incluido en la ultima release inmutable y conserva el SHA-256 publicado.
 Mientras no se publique una version firmada con Developer ID y notarizada, la
-distribucion publica (`0.3.5`, firma `adhoc`) puede ser rechazada por
+distribucion publica (`0.4.0`, firma `adhoc`) puede ser rechazada por
 Gatekeeper; se abre con clic derecho > Abrir.
 
 ## Uso

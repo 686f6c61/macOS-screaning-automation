@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.0 - Sin publicar
+## 0.4.0 - 2026-10-11
 
 - Aniadido onboarding de primera ejecucion con tres pasos: zona, permisos y disparadores.
 - Aniadida grabacion de video de la zona en MP4 (H.264) con ScreenCaptureKit; se
