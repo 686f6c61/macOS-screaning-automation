@@ -21,18 +21,18 @@ enum CaptureError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingRegion:
-            return "No hay una zona definida."
+            return L10n.t("No hay una zona definida.")
         case .processFailed(let status, let details):
             if details.isEmpty {
-                return "screencapture termino con codigo \(status)."
+                return L10n.format("screencapture termino con codigo %d.", status)
             }
-            return "screencapture termino con codigo \(status): \(details)"
+            return L10n.format("screencapture termino con codigo %d: %@", status, details)
         case .processTimedOut:
-            return "La captura ha superado el tiempo de espera."
+            return L10n.t("La captura ha superado el tiempo de espera.")
         case .invalidImage:
-            return "La captura no produjo una imagen valida."
+            return L10n.t("La captura no produjo una imagen valida.")
         case .coreGraphicsFailed:
-            return "No se pudo crear imagen de la zona."
+            return L10n.t("No se pudo crear imagen de la zona.")
         }
     }
 }
@@ -43,10 +43,10 @@ final class CaptureManager: ObservableObject {
 
     @Published private(set) var isCapturing = false
     @Published private(set) var lastCaptureURL: URL?
-    @Published private(set) var lastMessage = "Listo"
+    @Published private(set) var lastMessage = L10n.t("Listo")
     @Published private(set) var lastCaptureSucceeded = false
     @Published private(set) var armedCaptureActive = false
-    @Published private(set) var armedCaptureMessage = "Modo armado inactivo"
+    @Published private(set) var armedCaptureMessage = L10n.t("Modo armado inactivo")
 
     var prepareForCapture: (() -> Void)?
 
@@ -87,7 +87,7 @@ final class CaptureManager: ObservableObject {
         isCapturing = true
         let operationID = UUID()
         activeCaptureOperationID = operationID
-        lastMessage = "Capturando..."
+        lastMessage = L10n.t("Capturando...")
         prepareForCapture?()
         DiagnosticLog.write("capture started source=\(source) size=\(request.region.width)x\(request.region.height)")
         let captureExecutor = captureExecutor
@@ -106,7 +106,7 @@ final class CaptureManager: ObservableObject {
                     case .success(let url):
                         self.lastCaptureURL = url
                         self.lastCaptureSucceeded = true
-                        self.lastMessage = "Guardado: \(url.lastPathComponent)"
+                        self.lastMessage = L10n.format("Guardado: %@", url.lastPathComponent)
                         DiagnosticLog.write("capture succeeded file=\(url.lastPathComponent)")
                     case .failure(let error):
                         self.lastCaptureSucceeded = false
@@ -149,7 +149,7 @@ final class CaptureManager: ObservableObject {
         armedCaptureTotal = total
         armedCaptureInFlight = false
         armedCaptureActive = true
-        armedCaptureMessage = "Armado: espera \(delay.formatted(.number.precision(.fractionLength(1)))) s"
+        armedCaptureMessage = L10n.format("Armado: espera %@ s", delay.formatted(.number.precision(.fractionLength(1))))
         lastMessage = armedCaptureMessage
         beginArmedCaptureActivity()
         DiagnosticLog.write("armed burst scheduled delay=\(delay) interval=\(interval) count=\(total)")
@@ -171,7 +171,7 @@ final class CaptureManager: ObservableObject {
         guard let sessionID = armedCaptureSessionID else {
             return
         }
-        finishArmedBurst(sessionID: sessionID, message: "Modo armado cancelado")
+        finishArmedBurst(sessionID: sessionID, message: L10n.t("Modo armado cancelado"))
         DiagnosticLog.write("armed burst cancelled")
     }
 
@@ -184,11 +184,11 @@ final class CaptureManager: ObservableObject {
             return
         }
         guard let request = armedCaptureRequest else {
-            finishArmedBurst(sessionID: sessionID, message: "Modo armado sin zona")
+            finishArmedBurst(sessionID: sessionID, message: L10n.t("Modo armado sin zona"))
             return
         }
         guard armedCaptureRemaining > 0 else {
-            finishArmedBurst(sessionID: sessionID, message: "Modo armado finalizado")
+            finishArmedBurst(sessionID: sessionID, message: L10n.t("Modo armado finalizado"))
             return
         }
 
@@ -198,7 +198,7 @@ final class CaptureManager: ObservableObject {
         isCapturing = true
         let operationID = UUID()
         activeCaptureOperationID = operationID
-        armedCaptureMessage = "Armado: captura \(index)/\(armedCaptureTotal)"
+        armedCaptureMessage = L10n.format("Armado: captura %d/%d", index, armedCaptureTotal)
         lastMessage = armedCaptureMessage
         DiagnosticLog.write("armed burst capture started index=\(index) remaining=\(armedCaptureRemaining)")
 
@@ -219,19 +219,19 @@ final class CaptureManager: ObservableObject {
                 case .success(let url):
                     self.lastCaptureURL = url
                     self.lastCaptureSucceeded = true
-                    self.lastMessage = "Guardado: \(url.lastPathComponent)"
-                    self.armedCaptureMessage = "Armado: guardada \(index)/\(self.armedCaptureTotal)"
+                    self.lastMessage = L10n.format("Guardado: %@", url.lastPathComponent)
+                    self.armedCaptureMessage = L10n.format("Armado: guardada %d/%d", index, self.armedCaptureTotal)
                     DiagnosticLog.write("armed burst capture succeeded index=\(index) file=\(url.lastPathComponent)")
                 case .failure(let error):
                     self.lastCaptureSucceeded = false
                     self.lastMessage = error.localizedDescription
-                    self.armedCaptureMessage = "Armado: error \(index)/\(self.armedCaptureTotal)"
+                    self.armedCaptureMessage = L10n.format("Armado: error %d/%d", index, self.armedCaptureTotal)
                     DiagnosticLog.write("armed burst capture failed index=\(index) error=\(error.localizedDescription)")
                     NSSound.beep()
                 }
 
                 if self.armedCaptureRemaining <= 0 {
-                    self.finishArmedBurst(sessionID: sessionID, message: "Modo armado finalizado")
+                    self.finishArmedBurst(sessionID: sessionID, message: L10n.t("Modo armado finalizado"))
                 }
             }
         }
@@ -250,7 +250,7 @@ final class CaptureManager: ObservableObject {
         armedCaptureInFlight = false
         armedCaptureActive = false
         armedCaptureMessage = message
-        if lastMessage.hasPrefix("Armado:") {
+        if lastMessage.hasPrefix(L10n.t("Armado:")) {
             lastMessage = message
         }
         endArmedCaptureActivity()
@@ -283,64 +283,15 @@ final class CaptureManager: ObservableObject {
             let fileURL = folderURL
                 .appendingPathComponent(Self.makeFileName(format: request.imageFormat), isDirectory: false)
 
-            let process = Process()
-            let errorPipe = Pipe()
-            let outputPipe = Pipe()
-            process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-            process.arguments = [
-                "-x",
-                "-t",
-                request.imageFormat.rawValue,
-                "-R",
-                request.region.screencaptureArgument,
-                fileURL.path
-            ]
-            process.standardError = errorPipe
-            process.standardOutput = outputPipe
-            let processFinished = DispatchSemaphore(value: 0)
-            process.terminationHandler = { _ in
-                processFinished.signal()
-            }
-            try process.run()
-            guard processFinished.wait(timeout: .now() + 12) == .success else {
-                process.terminate()
-                if processFinished.wait(timeout: .now() + 1) == .timedOut, process.isRunning {
-                    kill(process.processIdentifier, SIGKILL)
-                    _ = processFinished.wait(timeout: .now() + 1)
-                }
-                try? FileManager.default.removeItem(at: fileURL)
-                DiagnosticLog.write("screencapture timed out")
-                if captureWithFallbacks(request: request, fileURL: fileURL) {
-                    return .success(fileURL)
-                }
-                return .failure(CaptureError.processTimedOut)
+            if captureWithScreenCaptureKit(request: request, fileURL: fileURL) {
+                hardenCaptureFile(at: fileURL)
+                return .success(fileURL)
             }
 
-            guard process.terminationStatus == 0 else {
-                let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-                let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-                let details = [
-                    String(data: errorData, encoding: .utf8),
-                    String(data: outputData, encoding: .utf8)
-                ]
-                    .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    .filter { !$0.isEmpty }
-                    .joined(separator: " ")
-                    .replacingOccurrences(of: request.outputFolderPath, with: "<output>")
-                DiagnosticLog.write("screencapture failed status=\(process.terminationStatus) details=\(details)")
-                if captureWithFallbacks(request: request, fileURL: fileURL) {
-                    return .success(fileURL)
-                }
-                return .failure(CaptureError.processFailed(process.terminationStatus, details))
-            }
-
-            guard capturedFileIsValid(at: fileURL) else {
+            DiagnosticLog.write("screencapture fallback started")
+            if let error = runScreenCapture(request: request, fileURL: fileURL) {
                 try? FileManager.default.removeItem(at: fileURL)
-                DiagnosticLog.write("screencapture produced invalid or blank image")
-                if captureWithFallbacks(request: request, fileURL: fileURL) {
-                    return .success(fileURL)
-                }
-                return .failure(CaptureError.invalidImage)
+                return .failure(error)
             }
             hardenCaptureFile(at: fileURL)
             return .success(fileURL)
@@ -349,21 +300,62 @@ final class CaptureManager: ObservableObject {
         }
     }
 
-    nonisolated private static func captureWithFallbacks(request: CaptureRequest, fileURL: URL) -> Bool {
-        try? FileManager.default.removeItem(at: fileURL)
-        if captureWithScreenCaptureKit(request: request, fileURL: fileURL) {
-            hardenCaptureFile(at: fileURL)
-            DiagnosticLog.write("screen capture kit fallback succeeded file=\(fileURL.lastPathComponent)")
-            return true
+    nonisolated private static func runScreenCapture(request: CaptureRequest, fileURL: URL) -> CaptureError? {
+        let process = Process()
+        let errorPipe = Pipe()
+        let outputPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        process.arguments = [
+            "-x",
+            "-t",
+            request.imageFormat.screencaptureToken,
+            "-R",
+            request.region.screencaptureArgument,
+            fileURL.path
+        ]
+        process.standardError = errorPipe
+        process.standardOutput = outputPipe
+        let processFinished = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in
+            processFinished.signal()
         }
-        DiagnosticLog.write("screen capture kit fallback failed")
-        if captureWithCoreGraphics(request: request, fileURL: fileURL) {
-            hardenCaptureFile(at: fileURL)
-            DiagnosticLog.write("core graphics fallback succeeded file=\(fileURL.lastPathComponent)")
-            return true
+        do {
+            try process.run()
+        } catch {
+            return .processFailed(1, error.localizedDescription)
         }
-        DiagnosticLog.write("core graphics fallback failed")
-        return false
+        guard processFinished.wait(timeout: .now() + 12) == .success else {
+            process.terminate()
+            if processFinished.wait(timeout: .now() + 1) == .timedOut, process.isRunning {
+                kill(process.processIdentifier, SIGKILL)
+                _ = processFinished.wait(timeout: .now() + 1)
+            }
+            try? FileManager.default.removeItem(at: fileURL)
+            DiagnosticLog.write("screencapture timed out")
+            return .processTimedOut
+        }
+
+        guard process.terminationStatus == 0 else {
+            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+            let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+            let details = [
+                String(data: errorData, encoding: .utf8),
+                String(data: outputData, encoding: .utf8)
+            ]
+                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+                .replacingOccurrences(of: request.outputFolderPath, with: "<output>")
+            DiagnosticLog.write("screencapture failed status=\(process.terminationStatus) details=\(details)")
+            return .processFailed(process.terminationStatus, details)
+        }
+
+        guard capturedFileIsValid(at: fileURL) else {
+            try? FileManager.default.removeItem(at: fileURL)
+            DiagnosticLog.write("screencapture produced invalid or blank image")
+            return .invalidImage
+        }
+        return nil
     }
 
     nonisolated private static func capturedFileIsValid(at fileURL: URL) -> Bool {
@@ -388,7 +380,6 @@ final class CaptureManager: ObservableObject {
         guard #available(macOS 15.2, *) else {
             return false
         }
-
         let rect = CGRect(
             x: request.region.x,
             y: request.region.y,
@@ -421,26 +412,18 @@ final class CaptureManager: ObservableObject {
         return write(image: image, format: request.imageFormat, to: fileURL)
     }
 
-    nonisolated private static func captureWithCoreGraphics(request: CaptureRequest, fileURL: URL) -> Bool {
-        let rect = CGRect(
-            x: request.region.x,
-            y: request.region.y,
-            width: request.region.width,
-            height: request.region.height
-        )
-        guard let image = CGWindowListCreateImage(rect, [.optionOnScreenOnly], kCGNullWindowID, [.bestResolution]) else {
-            return false
-        }
-        guard !CaptureImageInspector.isLikelyBlank(image) else {
-            try? FileManager.default.removeItem(at: fileURL)
-            DiagnosticLog.write("core graphics fallback produced blank image")
-            return false
-        }
-        return write(image: image, format: request.imageFormat, to: fileURL)
-    }
-
     nonisolated private static func write(image: CGImage, format: ImageFormat, to fileURL: URL) -> Bool {
-        let type = format == .jpg ? UTType.jpeg.identifier as CFString : UTType.png.identifier as CFString
+        let type: CFString
+        switch format {
+        case .png:
+            type = UTType.png.identifier as CFString
+        case .jpg:
+            type = UTType.jpeg.identifier as CFString
+        case .pdf:
+            type = UTType.pdf.identifier as CFString
+        case .tiff:
+            type = UTType.tiff.identifier as CFString
+        }
         guard let destination = CGImageDestinationCreateWithURL(fileURL as CFURL, type, 1, nil) else {
             return false
         }

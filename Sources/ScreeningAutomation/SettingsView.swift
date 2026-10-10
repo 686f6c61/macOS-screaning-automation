@@ -193,11 +193,11 @@ struct SettingsView: View {
 
                 Divider()
 
-                HStack(spacing: 4) {
+                HStack {
                     Text("Modo armado")
                     InfoHint(text: HelpText.armedMode)
                     Spacer()
-                    Text(captureManager.armedCaptureActive ? "Activo" : "Inactivo")
+                    Text(captureManager.armedCaptureActive ? L10n.t("Activo") : L10n.t("Inactivo"))
                         .foregroundStyle(captureManager.armedCaptureActive ? .green : .secondary)
                 }
 
@@ -248,7 +248,7 @@ struct SettingsView: View {
                         }
                     } label: {
                         Label(
-                            captureManager.armedCaptureActive ? "Cancelar" : "Armar rafaga",
+                            captureManager.armedCaptureActive ? L10n.t("Cancelar") : L10n.t("Armar rafaga"),
                             systemImage: captureManager.armedCaptureActive ? "stop.circle" : "timer"
                         )
                     }
@@ -315,7 +315,7 @@ struct SettingsView: View {
         GroupBox("Diagnostico") {
             VStack(alignment: .leading, spacing: 8) {
                 LabeledContent("Escucha", value: eventMonitor.backendDescription)
-                LabeledContent("Captura", value: captureReady ? "OK" : "Sin validar")
+                LabeledContent("Captura", value: captureReady ? L10n.t("OK") : L10n.t("Sin validar"))
                 LabeledContent("Clics", value: eventMonitor.clickProgressDescription)
                 LabeledContent("Esquina", value: eventMonitor.cornerHoldProgressDescription)
                 LabeledContent("Ultimo evento", value: eventMonitor.lastEventDescription)
@@ -325,6 +325,7 @@ struct SettingsView: View {
                         .foregroundStyle(.orange)
                         .font(.caption)
                 }
+                logBox
                 HStack {
                     Button {
                         controller.eventMonitor.simulateClickBurst()
@@ -332,9 +333,9 @@ struct SettingsView: View {
                         Label("Probar activador", systemImage: "bolt")
                     }
                     Button {
-                        DiagnosticLog.reveal()
+                        copyLog()
                     } label: {
-                        Label("Log", systemImage: "doc.text.magnifyingglass")
+                        Label("Copiar log", systemImage: "doc.on.doc")
                     }
                     Button {
                         updater.checkForUpdates()
@@ -347,6 +348,30 @@ struct SettingsView: View {
             .font(.caption)
             .padding(6)
         }
+    }
+
+    private var logBox: some View {
+        ScrollView {
+            Text(DiagnosticLog.recentLines(30).joined(separator: "\n"))
+                .font(.system(.caption2, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(6)
+                .textSelection(.enabled)
+        }
+        .frame(maxHeight: 110)
+        .overlay {
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(Color.secondary.opacity(0.25))
+        }
+    }
+
+    private func copyLog() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(
+            DiagnosticLog.recentLines(200).joined(separator: "\n"),
+            forType: .string
+        )
     }
 
     private var footer: some View {
@@ -377,7 +402,7 @@ struct SettingsView: View {
     }
 }
 
-private struct PermissionRow: View {
+struct PermissionRow: View {
     var title: String
     var allowed: Bool
     var requestTitle: String
@@ -388,20 +413,20 @@ private struct PermissionRow: View {
     var body: some View {
         HStack {
             HStack(spacing: 4) {
-                Label(title, systemImage: allowed ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                Label(L10n.t(title), systemImage: allowed ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                     .foregroundStyle(allowed ? .green : .orange)
                 InfoHint(text: helpText)
             }
             .help(helpText)
             Spacer()
-            Text(allowed ? "OK" : "Pendiente")
+            Text(allowed ? L10n.t("OK") : L10n.t("Pendiente"))
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(allowed ? .green : .orange)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background((allowed ? Color.green : Color.orange).opacity(0.12))
                 .clipShape(Capsule())
-            Button(requestTitle, action: requestAction)
+            Button(L10n.t(requestTitle), action: requestAction)
                 .disabled(allowed)
             Button {
                 settingsAction()
@@ -412,7 +437,7 @@ private struct PermissionRow: View {
     }
 }
 
-private struct InfoHint: View {
+struct InfoHint: View {
     let text: String
 
     var body: some View {
@@ -423,21 +448,21 @@ private struct InfoHint: View {
     }
 }
 
-private enum HelpText {
-    static let zone = "Region fija de la pantalla que se captura en cada disparo. Redefinela con Definir."
-    static let outputFolder = "Carpeta del disco donde se guardan las capturas."
-    static let imageFormat = "Formato de archivo de las capturas: PNG sin perdidas o JPG mas ligero."
-    static let triggersPaused = "Detiene los activadores de clics y de esquina sin cerrar la app. Las capturas manuales del menu siguen funcionando."
-    static let clickCount = "Numero de clics necesario para disparar una captura dentro de la ventana de tiempo."
-    static let clickWindow = "Segundos maximos en los que deben caer los clics para contar como una rafaga."
-    static let cooldown = "Tiempo minimo entre dos disparos automaticos; evita capturas encadenadas."
-    static let hoverEnabled = "Dispara una captura al mantener el puntero en la esquina elegida, sin hacer clic."
-    static let hoverCorner = "Esquina de la pantalla que activa la captura."
-    static let hoverTimeout = "Tiempo que el puntero debe permanecer en la esquina antes de disparar."
-    static let armedMode = "Programa una serie de capturas automaticas tras una espera inicial. Util antes de entrar en apps que no entregan eventos globales."
-    static let armedDelay = "Segundos de espera antes de comenzar la serie de capturas."
-    static let armedInterval = "Separacion en segundos entre las capturas de la serie."
-    static let armedCount = "Numero total de capturas de la serie."
-    static let inputMonitoring = "Permiso de macOS para escuchar los clics globales con un event tap pasivo."
-    static let screenCapture = "Permiso de macOS para capturar el contenido visible de la pantalla."
+enum HelpText {
+    static let zone = L10n.t("Region fija de la pantalla que se captura en cada disparo. Redefinela con Definir.")
+    static let outputFolder = L10n.t("Carpeta del disco donde se guardan las capturas.")
+    static let imageFormat = L10n.t("Formato de archivo de las capturas: PNG sin perdidas, JPG mas ligero, PDF o TIFF.")
+    static let triggersPaused = L10n.t("Detiene los activadores de clics y de esquina sin cerrar la app. Las capturas manuales del menu siguen funcionando.")
+    static let clickCount = L10n.t("Numero de clics necesario para disparar una captura dentro de la ventana de tiempo.")
+    static let clickWindow = L10n.t("Segundos maximos en los que deben caer los clics para contar como una rafaga.")
+    static let cooldown = L10n.t("Tiempo minimo entre dos disparos automaticos; evita capturas encadenadas.")
+    static let hoverEnabled = L10n.t("Dispara una captura al mantener el puntero en la esquina elegida, sin hacer clic.")
+    static let hoverCorner = L10n.t("Esquina de la pantalla que activa la captura.")
+    static let hoverTimeout = L10n.t("Tiempo que el puntero debe permanecer en la esquina antes de disparar.")
+    static let armedMode = L10n.t("Programa una serie de capturas automaticas tras una espera inicial. Util antes de entrar en apps que no entregan eventos globales.")
+    static let armedDelay = L10n.t("Segundos de espera antes de comenzar la serie de capturas.")
+    static let armedInterval = L10n.t("Separacion en segundos entre las capturas de la serie.")
+    static let armedCount = L10n.t("Numero total de capturas de la serie.")
+    static let inputMonitoring = L10n.t("Permiso de macOS para escuchar los clics globales con un event tap pasivo.")
+    static let screenCapture = L10n.t("Permiso de macOS para capturar el contenido visible de la pantalla.")
 }

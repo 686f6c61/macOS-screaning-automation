@@ -18,35 +18,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
         AppController.shared.start()
+        AppController.shared.showOnboardingIfNeeded()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
     }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let videoRecorder = AppController.shared.videoRecorder
+        guard videoRecorder.isRecording else {
+            return .terminateNow
+        }
+        Task { @MainActor in
+            videoRecorder.stop()
+            try? await Task.sleep(for: .seconds(2))
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
 }
 
 @MainActor
-final class AppController: ObservableObject {
+final class AppController: NSObject, ObservableObject, NSWindowDelegate {
     static let shared = AppController()
+    static let onboardingCompletedKey = "ScreeningAutomation.Onboarding.Completed.v1"
 
     let settings: AppSettings
     let captureManager: CaptureManager
     let eventMonitor: EventTapMonitor
     let permissions: PermissionStatus
     let updater: AppUpdater
+    let videoRecorder: VideoRecorder
 
     private let regionSelectionCoordinator = RegionSelectionCoordinator()
     private var settingsWindow: NSWindow?
+    private var onboardingWindow: NSWindow?
 
-    private init() {
+    private override init() {
         let settings = AppSettings()
         self.settings = settings
         permissions = PermissionStatus()
         captureManager = CaptureManager(settings: settings)
         updater = AppUpdater()
+        videoRecorder = VideoRecorder(settings: settings)
         eventMonitor = EventTapMonitor(settings: settings) { [weak captureManager] source in
             captureManager?.captureNow(source: source)
         }
+        super.init()
         captureManager.prepareForCapture = { [weak self] in
             self?.prepareForCapture()
         }
@@ -99,6 +118,49 @@ final class AppController: ObservableObject {
         window.makeKeyAndOrderFront(nil)
     }
 
+    func showOnboardingIfNeeded() {
+        guard !settings.hadPersistedSettings,
+              !UserDefaults.standard.bool(forKey: Self.onboardingCompletedKey) else {
+            return
+        }
+        showOnboarding()
+    }
+
+    func showOnboarding() {
+        if let onboardingWindow {
+            show(onboardingWindow)
+            return
+        }
+
+        let hostingController = NSHostingController(rootView: OnboardingView(controller: self) { [weak self] in
+            self?.completeOnboarding()
+        })
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 480),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Screening Automation"
+        window.contentViewController = hostingController
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+        window.center()
+        onboardingWindow = window
+        show(window)
+    }
+
+    func completeOnboarding() {
+        UserDefaults.standard.set(true, forKey: Self.onboardingCompletedKey)
+        onboardingWindow?.orderOut(nil)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        if notification.object as? NSWindow === onboardingWindow {
+            UserDefaults.standard.set(true, forKey: Self.onboardingCompletedKey)
+        }
+    }
+
     private func prepareForCapture() {
         if settingsWindow?.isVisible == true {
             settingsWindow?.orderOut(nil)
@@ -113,6 +175,7 @@ private struct MenuContent: View {
     @ObservedObject private var permissions: PermissionStatus
     @ObservedObject private var eventMonitor: EventTapMonitor
     @ObservedObject private var updater: AppUpdater
+    @ObservedObject private var videoRecorder: VideoRecorder
     private let controller: AppController
 
     init(controller: AppController) {
@@ -122,6 +185,7 @@ private struct MenuContent: View {
         _permissions = ObservedObject(wrappedValue: controller.permissions)
         _eventMonitor = ObservedObject(wrappedValue: controller.eventMonitor)
         _updater = ObservedObject(wrappedValue: controller.updater)
+        _videoRecorder = ObservedObject(wrappedValue: controller.videoRecorder)
     }
 
     var body: some View {
@@ -140,8 +204,18 @@ private struct MenuContent: View {
             }
         } label: {
             Label(
-                captureManager.armedCaptureActive ? "Cancelar modo armado" : "Armar rafaga",
+                captureManager.armedCaptureActive ? L10n.t("Cancelar modo armado") : L10n.t("Armar rafaga"),
                 systemImage: captureManager.armedCaptureActive ? "stop.circle" : "timer"
+            )
+        }
+        .disabled(settings.selectedRegion == nil)
+
+        Button {
+            controller.videoRecorder.toggle()
+        } label: {
+            Label(
+                videoRecorder.isRecording ? L10n.t("Detener grabacion") : L10n.t("Grabar video de la zona"),
+                systemImage: videoRecorder.isRecording ? "stop.rectangle" : "video"
             )
         }
         .disabled(settings.selectedRegion == nil)
@@ -158,7 +232,7 @@ private struct MenuContent: View {
             settings.triggersPaused.toggle()
         } label: {
             Label(
-                settings.triggersPaused ? "Reanudar activadores" : "Pausar activadores",
+                settings.triggersPaused ? L10n.t("Reanudar activadores") : L10n.t("Pausar activadores"),
                 systemImage: settings.triggersPaused ? "play.circle" : "pause.circle"
             )
         }
@@ -190,12 +264,18 @@ private struct MenuContent: View {
             Text("Sin zona")
         }
         Label(
-            permissionsReady ? "Permisos OK" : "Permisos pendientes",
+            permissionsReady ? L10n.t("Permisos OK") : L10n.t("Permisos pendientes"),
             systemImage: permissionsReady ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
         )
         Text(captureManager.lastMessage)
         if captureManager.armedCaptureActive {
             Text(captureManager.armedCaptureMessage)
+        }
+        if videoRecorder.isRecording {
+            Label(
+                L10n.format("Grabando %@", videoRecorder.elapsedDescription),
+                systemImage: "record.circle"
+            )
         }
 
         Divider()

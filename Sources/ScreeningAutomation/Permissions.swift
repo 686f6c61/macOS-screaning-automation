@@ -19,6 +19,8 @@ final class PermissionStatus: ObservableObject {
     private var screenCaptureProbeAllowed = false
     private var screenCaptureProbeInFlight = false
     private var lastScreenCaptureProbeDate = Date.distantPast
+    private var nextProbeAllowedDate = Date.distantPast
+    private var probeAttempt = 0
 
     init(
         inputMonitoringProbe: @escaping PermissionProbe = { InputMonitoringPermission.allowed },
@@ -37,7 +39,7 @@ final class PermissionStatus: ObservableObject {
     }
 
     var summary: String {
-        allAllowed ? "Permisos OK" : "Permisos pendientes"
+        allAllowed ? L10n.t("Permisos OK") : L10n.t("Permisos pendientes")
     }
 
     func startMonitoring() {
@@ -74,11 +76,25 @@ final class PermissionStatus: ObservableObject {
         if screenCaptureAllowed != nextScreenCaptureAllowed {
             screenCaptureAllowed = nextScreenCaptureAllowed
         }
-        if preflightScreenCaptureAllowed {
+        if preflightScreenCaptureAllowed || screenCaptureProbeAllowed {
             screenCaptureProbeAllowed = true
+            resetProbeBackoff()
         } else {
             scheduleScreenCaptureProbe()
         }
+    }
+
+    private func resetProbeBackoff() {
+        probeAttempt = 0
+        nextProbeAllowedDate = .distantPast
+    }
+
+    nonisolated static func probeDelay(afterAttempt attempt: Int) -> TimeInterval {
+        let schedule: [TimeInterval] = [5, 10, 20, 30]
+        guard !schedule.isEmpty else {
+            return 5
+        }
+        return schedule[min(max(attempt, 0), schedule.count - 1)]
     }
 
     private func scheduleScreenCaptureProbe() {
@@ -86,10 +102,12 @@ final class PermissionStatus: ObservableObject {
             return
         }
         let now = Date()
-        guard now.timeIntervalSince(lastScreenCaptureProbeDate) >= 5 else {
+        guard now >= nextProbeAllowedDate, now.timeIntervalSince(lastScreenCaptureProbeDate) >= 5 else {
             return
         }
 
+        nextProbeAllowedDate = now.addingTimeInterval(Self.probeDelay(afterAttempt: probeAttempt))
+        probeAttempt += 1
         screenCaptureProbeInFlight = true
         lastScreenCaptureProbeDate = now
         let screenCaptureAccessProbe = screenCaptureAccessProbe

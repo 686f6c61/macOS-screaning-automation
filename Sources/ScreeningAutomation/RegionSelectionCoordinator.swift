@@ -135,7 +135,7 @@ private final class SelectionOverlayView: NSView {
     }
 
     private func drawPrompt() {
-        let text = "Arrastra para definir la zona"
+        let text = L10n.t("Arrastra para definir la zona")
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 14, weight: .medium),
             .foregroundColor: NSColor.white

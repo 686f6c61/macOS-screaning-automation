@@ -18,6 +18,9 @@ mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources" "$APP_DIR/Conte
 cp "$BIN_SRC" "$BIN_DST"
 cp "$ROOT_DIR/Resources/Info.plist" "$APP_DIR/Contents/Info.plist"
 cp "$ROOT_DIR/Resources/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
+for LPROJ in "$ROOT_DIR"/Resources/*.lproj; do
+  [ -d "$LPROJ" ] && cp -R "$LPROJ" "$APP_DIR/Contents/Resources/"
+done
 /usr/bin/ditto --norsrc "$SPARKLE_SRC" "$SPARKLE_DST"
 
 chmod +x "$BIN_DST"

@@ -57,11 +57,17 @@ struct CaptureRegion: Codable, Equatable {
 enum ImageFormat: String, CaseIterable, Codable, Identifiable {
     case png
     case jpg
+    case pdf
+    case tiff
 
     var id: String { rawValue }
 
     var fileExtension: String {
         rawValue
+    }
+
+    var screencaptureToken: String {
+        self == .tiff ? "tif" : rawValue
     }
 
     var label: String {
@@ -80,13 +86,13 @@ enum HoverGestureCorner: String, CaseIterable, Codable, Identifiable {
     var label: String {
         switch self {
         case .topLeft:
-            return "Arriba izquierda"
+            return L10n.t("Arriba izquierda")
         case .topRight:
-            return "Arriba derecha"
+            return L10n.t("Arriba derecha")
         case .bottomLeft:
-            return "Abajo izquierda"
+            return L10n.t("Abajo izquierda")
         case .bottomRight:
-            return "Abajo derecha"
+            return L10n.t("Abajo derecha")
         }
     }
 }
@@ -112,6 +118,7 @@ final class AppSettings: ObservableObject {
     private let defaultsKey = "ScreeningAutomation.Settings.v1"
     private let legacyDefaultsKey = "MonitorScreening.Settings.v1"
     private let defaults: UserDefaults
+    private(set) var hadPersistedSettings = false
 
     @Published var selectedRegion: CaptureRegion? {
         didSet { save() }
@@ -169,6 +176,7 @@ final class AppSettings: ObservableObject {
         self.defaults = defaults
         if let data = defaults.data(forKey: defaultsKey) ?? defaults.data(forKey: legacyDefaultsKey),
            let persisted = try? JSONDecoder().decode(PersistedSettings.self, from: data) {
+            hadPersistedSettings = true
             selectedRegion = persisted.selectedRegion
             outputFolderPath = persisted.outputFolderPath
             imageFormat = persisted.imageFormat

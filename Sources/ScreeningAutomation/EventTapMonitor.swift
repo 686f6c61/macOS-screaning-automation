@@ -85,11 +85,11 @@ final class EventTapMonitor: ObservableObject {
     private let onTrigger: (String) -> Void
 
     @Published private(set) var isRunning = false
-    @Published private(set) var backendDescription = "Inactivo"
-    @Published private(set) var lastEventDescription = "Sin eventos"
+    @Published private(set) var backendDescription = L10n.t("Inactivo")
+    @Published private(set) var lastEventDescription = L10n.t("Sin eventos")
     @Published private(set) var clickProgressDescription = "0/0"
-    @Published private(set) var cornerHoldProgressDescription = "Inactivo"
-    @Published private(set) var lastTriggerDescription = "Sin disparos"
+    @Published private(set) var cornerHoldProgressDescription = L10n.t("Inactivo")
+    @Published private(set) var lastTriggerDescription = L10n.t("Sin disparos")
     @Published private(set) var lastStartError = ""
     @Published private(set) var inputMonitoringAllowed = InputMonitoringPermission.allowed
 
@@ -134,7 +134,7 @@ final class EventTapMonitor: ObservableObject {
             ?? createEventTap(location: .cgSessionEventTap, mask: mask)
 
         guard let createdTap else {
-            lastStartError = "CGEventTap no disponible; usando AppKit global."
+            lastStartError = L10n.t("CGEventTap no disponible; usando AppKit global.")
             DiagnosticLog.write("all event tap create attempts failed; using AppKit global only")
             startGlobalMouseMonitor(backend: "AppKit global")
             startCornerHoldTimer()
@@ -173,7 +173,7 @@ final class EventTapMonitor: ObservableObject {
         stopGlobalMouseMonitor()
         stopCornerHoldTimer()
         endActivatorActivity()
-        backendDescription = "Inactivo"
+        backendDescription = L10n.t("Inactivo")
         permissionRetryTimer?.invalidate()
         permissionRetryTimer = nil
         clickBurstDetector.reset()
@@ -241,7 +241,7 @@ final class EventTapMonitor: ObservableObject {
             backendDescription = "CG polling"
         } else {
             isRunning = false
-            backendDescription = "Inactivo"
+            backendDescription = L10n.t("Inactivo")
         }
         updateClickProgress()
         updateCornerHoldTick()
@@ -263,7 +263,7 @@ final class EventTapMonitor: ObservableObject {
             return
         }
 
-        lastEventDescription = "Clic visto por \(backend) @ \(Int(location.x)),\(Int(location.y))"
+        lastEventDescription = L10n.format("Clic visto por %@ @ %d,%d", backend, Int(location.x), Int(location.y))
         DiagnosticLog.write("click seen backend=\(backend)")
         updateClickProgress()
 
@@ -274,7 +274,7 @@ final class EventTapMonitor: ObservableObject {
             return
         }
 
-        lastTriggerDescription = "Disparo por \(backend)"
+        lastTriggerDescription = L10n.format("Disparo por %@", backend)
         DiagnosticLog.write("trigger fired backend=\(backend)")
         onTrigger("clicks")
     }
@@ -399,7 +399,7 @@ final class EventTapMonitor: ObservableObject {
     private func updateCornerHoldTick() {
         guard let settings, settings.hoverGestureEnabled, !settings.triggersPaused else {
             resetCornerHold()
-            cornerHoldProgressDescription = "Inactivo"
+            cornerHoldProgressDescription = L10n.t("Inactivo")
             return
         }
 
@@ -410,7 +410,7 @@ final class EventTapMonitor: ObservableObject {
                 DiagnosticLog.write("corner hold reset")
             }
             resetCornerHold()
-            cornerHoldProgressDescription = "Fuera"
+            cornerHoldProgressDescription = L10n.t("Fuera")
             return
         }
 
@@ -418,7 +418,7 @@ final class EventTapMonitor: ObservableObject {
             cornerHoldStartedAt = now
             cornerHoldDidTrigger = false
             beginActivatorActivity()
-            lastEventDescription = "Puntero en \(settings.hoverGestureCorner.label) por CG polling"
+            lastEventDescription = L10n.format("Puntero en %@ por CG polling", settings.hoverGestureCorner.label)
             DiagnosticLog.write("corner hold started corner=\(settings.hoverGestureCorner.rawValue)")
         }
 
@@ -434,8 +434,8 @@ final class EventTapMonitor: ObservableObject {
 
         cornerHoldDidTrigger = true
         clickBurstDetector.recordExternalTrigger(at: now)
-        lastTriggerDescription = "Disparo por esquina"
-        cornerHoldProgressDescription = "Disparado"
+        lastTriggerDescription = L10n.t("Disparo por esquina")
+        cornerHoldProgressDescription = L10n.t("Disparado")
         DiagnosticLog.write("corner hold trigger fired corner=\(settings.hoverGestureCorner.rawValue)")
         onTrigger("corner-hold")
     }

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.0 - Sin publicar
+
+- Aniadido onboarding de primera ejecucion con tres pasos: zona, permisos y disparadores.
+- Aniadida grabacion de video de la zona en MP4 (H.264) con ScreenCaptureKit; se
+  detiene desde el menu, al salir de la app o al alcanzar 10 minutos.
+- Aniadidos los formatos de salida PDF y TIFF ademas de PNG y JPG.
+- Invertida la cadena de captura: ScreenCaptureKit es la via principal y
+  `/usr/sbin/screencapture` queda como fallback; retirado el fallback deprecado
+  `CGWindowListCreateImage`.
+- Aniadido `os.Logger` al lado del log de archivo para diagnostico desde Console.app.
+- El panel Diagnostico muestra las ultimas lineas del log con boton de copiar.
+- El sondeo de permiso de captura pendiente aplica backoff exponencial de 5 a 30 segundos.
+- Interfaz traducida al ingles y al espanol con tablas `.lproj` incluidas en el bundle.
+
 ## 0.3.5 - 2026-10-10
 
 - Publicada con firma `adhoc` mediante la variable de repo

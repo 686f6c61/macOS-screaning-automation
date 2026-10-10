@@ -11,7 +11,8 @@ mostrar el selector durante cada captura.
 
 - Ultima version publica: `0.3.5` (2026-10-10). Es la que GitHub muestra como
   `Latest`, la que instala Homebrew y la que ofrece Sparkle al actualizar.
-- Version en `main`: `0.3.5` (`CFBundleVersion` 8), igual a la publicada.
+- Version en preparacion en `main`: `0.4.0` (`CFBundleVersion` 9), sin publicar;
+  sus cambios estan en el changelog bajo `0.4.0 - Sin publicar`.
 - Firma actual: `adhoc` (sin Developer ID ni notarizacion). macOS puede pedir
   abrir la primera vez con clic derecho > Abrir. Las actualizaciones de Sparkle
   no se ven afectadas: validan la firma EdDSA del ZIP, independiente de Apple.
@@ -51,13 +52,15 @@ Gatekeeper; se abre con clic derecho > Abrir.
 
 ## Uso
 
-1. Abre `Screening Automation` y localiza `SA` en la barra de menu.
+1. Abre `Screening Automation` y localiza `SA` en la barra de menu. La primera
+   vez, un asistente de tres pasos guia zona, permisos y disparadores.
 2. Pulsa `Definir zona` y arrastra sobre la region que quieras conservar.
-3. Elige carpeta, PNG/JPG y activadores desde `Ajustes`.
-4. Captura desde el menu, con la rafaga de clics o manteniendo el puntero en la
-   esquina configurada.
+3. Elige carpeta, PNG/JPG/PDF/TIFF y activadores desde `Ajustes`.
+4. Captura desde el menu, con la rafaga de clics, manteniendo el puntero en la
+   esquina configurada, o graba un video MP4 de la zona.
 
-Las capturas usan el nombre `SA_yyyy-MM-dd_HH-mm-ss-SSS.png` o `.jpg`.
+Las capturas usan el nombre `SA_yyyy-MM-dd_HH-mm-ss-SSS.png` (o la extension
+del formato elegido) y los videos `SA_yyyy-MM-dd_HH-mm-ss-SSS.mp4`.
 
 ## Activadores
 

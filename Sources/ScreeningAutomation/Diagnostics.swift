@@ -1,10 +1,12 @@
 import AppKit
 import Foundation
+import os
 
 enum DiagnosticLog {
     private static let maxLogBytes: UInt64 = 512 * 1024
     private static let privacyMigrationKey = "ScreeningAutomation.LogPrivacy.v2"
     private static let queue = DispatchQueue(label: "tech.686f6c61.screening-automation.diagnostic-log")
+    private static let osLogger = Logger(subsystem: "tech.686f6c61.screening-automation", category: "diagnostics")
 
     private static var isTestProcess: Bool {
         NSClassFromString("XCTestCase") != nil
@@ -45,13 +47,28 @@ enum DiagnosticLog {
             return
         }
         let formatter = ISO8601DateFormatter()
-        let line = "\(formatter.string(from: Date())) \(sanitizedMessage(message))\n"
+        let sanitized = sanitizedMessage(message)
+        osLogger.notice("\(sanitized, privacy: .public)")
+        let line = "\(formatter.string(from: Date())) \(sanitized)\n"
         guard let data = line.data(using: .utf8) else {
             return
         }
 
         queue.sync {
             write(data)
+        }
+    }
+
+    static func recentLines(_ limit: Int = 30, from fileURL: URL = DiagnosticLog.fileURL) -> [String] {
+        queue.sync {
+            guard let data = try? Data(contentsOf: fileURL),
+                  let contents = String(data: data, encoding: .utf8) else {
+                return []
+            }
+            return contents
+                .split(separator: "\n", omittingEmptySubsequences: true)
+                .suffix(limit)
+                .map(String.init)
         }
     }
 

@@ -310,6 +310,79 @@ final class ArmedCaptureTests: XCTestCase {
     }
 }
 
+final class ImageFormatTests: XCTestCase {
+    func testExtensionsAndScreencaptureTokens() {
+        XCTAssertEqual(ImageFormat.png.fileExtension, "png")
+        XCTAssertEqual(ImageFormat.jpg.fileExtension, "jpg")
+        XCTAssertEqual(ImageFormat.pdf.fileExtension, "pdf")
+        XCTAssertEqual(ImageFormat.tiff.fileExtension, "tiff")
+        XCTAssertEqual(ImageFormat.png.screencaptureToken, "png")
+        XCTAssertEqual(ImageFormat.tiff.screencaptureToken, "tif")
+        XCTAssertEqual(ImageFormat.allCases.count, 4)
+    }
+}
+
+final class VideoRegionResolverTests: XCTestCase {
+    func testResolvesRegionToContainingDisplay() {
+        let descriptors = [
+            VideoRegionDescriptor(displayID: 1, quartzBounds: CGRect(x: 0, y: 0, width: 1920, height: 1080), scale: 2),
+            VideoRegionDescriptor(displayID: 2, quartzBounds: CGRect(x: 1920, y: 0, width: 1920, height: 1080), scale: 1)
+        ]
+        let region = CaptureRegion(x: 2100, y: 100, width: 400, height: 300, displayName: "External", createdAt: Date())
+
+        let resolved = VideoRegionResolver.resolve(region: region, descriptors: descriptors)
+
+        XCTAssertEqual(resolved?.displayID, 2)
+        XCTAssertEqual(resolved?.localRect, CGRect(x: 180, y: 100, width: 400, height: 300))
+        XCTAssertEqual(resolved?.scale, 1)
+    }
+
+    func testReturnsNilWhenRegionOutsideDisplays() {
+        let descriptors = [
+            VideoRegionDescriptor(displayID: 1, quartzBounds: CGRect(x: 0, y: 0, width: 1920, height: 1080), scale: 2)
+        ]
+        let region = CaptureRegion(x: 5000, y: 100, width: 100, height: 100, displayName: "Nadie", createdAt: Date())
+
+        XCTAssertNil(VideoRegionResolver.resolve(region: region, descriptors: descriptors))
+    }
+}
+
+final class VideoTimeFormatTests: XCTestCase {
+    func testFormatsMinutesAndSeconds() {
+        XCTAssertEqual(VideoRecorder.format(elapsed: 0), "0:00")
+        XCTAssertEqual(VideoRecorder.format(elapsed: 65), "1:05")
+        XCTAssertEqual(VideoRecorder.format(elapsed: 600), "10:00")
+        XCTAssertEqual(VideoRecorder.format(elapsed: -5), "0:00")
+    }
+}
+
+final class ProbeBackoffTests: XCTestCase {
+    func testProbeDelayGrowsAndCaps() {
+        XCTAssertEqual(PermissionStatus.probeDelay(afterAttempt: 0), 5)
+        XCTAssertEqual(PermissionStatus.probeDelay(afterAttempt: 1), 10)
+        XCTAssertEqual(PermissionStatus.probeDelay(afterAttempt: 2), 20)
+        XCTAssertEqual(PermissionStatus.probeDelay(afterAttempt: 3), 30)
+        XCTAssertEqual(PermissionStatus.probeDelay(afterAttempt: 99), 30)
+        XCTAssertEqual(PermissionStatus.probeDelay(afterAttempt: -5), 5)
+    }
+}
+
+final class RecentLogLinesTests: XCTestCase {
+    func testRecentLinesReadsTailFromGivenFile() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ScreeningAutomationTests-\(UUID().uuidString).log")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try (0..<50).map { "linea-\($0)" }.joined(separator: "\n")
+            .write(to: url, atomically: true, encoding: .utf8)
+
+        let lines = DiagnosticLog.recentLines(10, from: url)
+
+        XCTAssertEqual(lines.count, 10)
+        XCTAssertEqual(lines.first, "linea-40")
+        XCTAssertEqual(lines.last, "linea-49")
+    }
+}
+
 private final class SequencedCaptureExecutor: @unchecked Sendable {
     private let lock = NSLock()
     private var count = 0
