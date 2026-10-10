@@ -158,7 +158,7 @@ jobs:
           test -f releases/screening-automation.rb
           unzip -t "$ZIP" >/dev/null
           xmllint --noout releases/appcast.xml
-          grep -q 'sparkle-signatures:' releases/appcast.xml
+          grep -q 'sparkle:edSignature' releases/appcast.xml
           test "$(xmllint --xpath 'count(/rss/channel/item)' releases/appcast.xml)" = "1"
           if grep -q '<sparkle:deltas>' releases/appcast.xml; then
             echo "::error::Appcast must not reference unpublished delta assets"

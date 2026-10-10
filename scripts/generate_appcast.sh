@@ -21,4 +21,6 @@ if [[ -z "${SPARKLE_PRIVATE_KEY:-}" ]]; then
   exit 1
 fi
 printf "%s" "$SPARKLE_PRIVATE_KEY" | "$SPARKLE_BIN/generate_appcast" --ed-key-file - "${ARGS[@]}" "$UPDATES_DIR"
+# Sparkle 2.10 generates enclosure signatures but no longer signs the whole feed
+printf "%s" "$SPARKLE_PRIVATE_KEY" | "$SPARKLE_BIN/sign_update" --ed-key-file - "$UPDATES_DIR/appcast.xml"
 echo "$UPDATES_DIR/appcast.xml"
