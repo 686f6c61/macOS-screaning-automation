@@ -7,6 +7,7 @@
 - Corregida la UI para consultar Monitorizacion de entrada en lugar de Accesibilidad.
 - Aniadido reintento automatico del event tap al conceder el permiso y reiniciar la app.
 - Aniadido `isolated deinit` al monitor de eventos para invalidar el event tap si se libera sin `stop()`.
+- Anadido un icono de ayuda junto a cada ajuste que explica su funcion al pasar el puntero.
 - Acotada la actividad `latencyCritical` a los holds reales de esquina para reducir el impacto en bateria.
 - Eliminado el sondeo de permiso basado en un unico pixel negro.
 - Validada la imagen producida por `screencapture` y aniadido timeout con fallbacks.
