@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.4 - 2026-07-20
+## 0.3.4 - Sin publicar
 
 - Aniadido modo armado con espera, intervalo y numero limitado de capturas.
 - Blindadas cancelacion y reactivacion mediante IDs de sesion y operacion.

@@ -9,18 +9,20 @@ mostrar el selector durante cada captura.
 
 ## Estado
 
-- Version preparada en `main`: `0.3.4` (`CFBundleVersion` 7).
-- Ultima version publica: `0.3.2`.
+- Ultima version publica: `0.3.2` (2026-05-28). Es la que GitHub muestra como
+  `Latest` y la que instala Homebrew.
+- Version en preparacion en `main`: `0.3.4` (`CFBundleVersion` 7), sin publicar;
+  sus cambios estan en el changelog bajo `0.3.4 - Sin publicar`.
 - Bundle ID: `tech.686f6c61.screening-automation`.
 - macOS minimo: `13.0`.
 - Swift tools: `6.1`; Swift language mode: `6`.
-- Toolchain local verificado: Xcode `26.6`, Swift `6.3.3`.
 - Updater: Sparkle `2.10.0` (ultima version estable comprobada el 2026-10-10),
   archivos y feed firmados con EdDSA.
 - Appcast: `https://github.com/686f6c61/macOS-screaning-automation/releases/latest/download/appcast.xml`.
-- Las releases hasta `v0.3.2` tienen firma adhoc y no estan notarizadas. `v0.3.4`
-  solo debe etiquetarse cuando el Environment `release` tenga Developer ID y
-  credenciales de notarizacion validos.
+- Todas las releases publicadas hasta `v0.3.2` tienen firma adhoc y no estan
+  notarizadas. `v0.3.4` solo debe etiquetarse cuando el Environment `release`
+  tenga Developer ID y credenciales de notarizacion validos; el workflow falla
+  antes de publicar si falta alguno.
 
 ## Instalacion
 
@@ -41,8 +43,8 @@ brew upgrade --cask screening-automation
 El tap real es
 `686f6c61/homebrew-macOS-screaning-automation`. Su CI consulta cada seis horas
 el cask incluido en la ultima release inmutable y conserva el SHA-256 publicado.
-Mientras `v0.3.4` no este firmada y notarizada, la distribucion publica disponible
-puede ser rechazada por Gatekeeper.
+Mientras no se publique una version firmada con Developer ID y notarizada, la
+distribucion publica (`0.3.2`) puede ser rechazada por Gatekeeper.
 
 ## Uso
 
@@ -136,7 +138,8 @@ un equipo autorizado. El workflow falla antes de publicar si falta un secreto.
 Preparacion de una version:
 
 ```sh
-# Actualizar Resources/Info.plist y CHANGELOG.md primero.
+# Actualizar Resources/Info.plist y cambiar en CHANGELOG.md el encabezado
+# `X.Y.Z - Sin publicar` por `X.Y.Z - AAAA-MM-DD` antes de etiquetar.
 swift test -Xswiftc -warnings-as-errors
 git push origin main
 
