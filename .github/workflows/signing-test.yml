@@ -59,7 +59,7 @@ jobs:
         run: |
           APP=".build/release/Screening Automation.app"
           codesign --verify --deep --strict "$APP"
-          codesign -d --verbose=4 "$APP" 2>&1 | grep 'Authority=Screening Automation Release:'
+          codesign -d --verbose=4 "$APP" 2>&1 | grep 'Authority=Screening Automation Release'
           codesign -d --verbose=4 "$APP" 2>&1 | grep -E 'flags=.*runtime'
           echo "Release identity signing works"
 

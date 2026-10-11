@@ -220,7 +220,7 @@ jobs:
             xcrun stapler validate "$APP"
             spctl --assess --type execute --verbose=4 "$APP"
           else
-            codesign -d --verbose=4 "$APP" 2>&1 | grep 'Authority=Screening Automation Release:'
+            codesign -d --verbose=4 "$APP" 2>&1 | grep 'Authority=Screening Automation Release'
             codesign -d --verbose=4 "$APP" 2>&1 | grep -E 'flags=.*runtime'
           fi
           ruby -c releases/screening-automation.rb

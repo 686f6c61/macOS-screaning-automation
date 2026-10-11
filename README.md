@@ -11,10 +11,14 @@ mostrar el selector durante cada captura.
 
 - Ultima version publica: `0.4.0` (2026-10-11). Es la que GitHub muestra como
   `Latest`, la que instala Homebrew y la que ofrece Sparkle al actualizar.
-- Version en `main`: `0.4.0` (`CFBundleVersion` 9), igual a la publicada.
-- Firma actual: `adhoc` (sin Developer ID ni notarizacion). macOS puede pedir
-  abrir la primera vez con clic derecho > Abrir. Las actualizaciones de Sparkle
-  no se ven afectadas: validan la firma EdDSA del ZIP, independiente de Apple.
+- Version en preparacion en `main`: `0.4.1` (`CFBundleVersion` 10), sin
+  publicar; sus cambios estan en el changelog bajo `0.4.1 - Sin publicar`.
+- Firma actual: identidad propia estable `Screening Automation Release` desde
+  `0.4.1`, para que macOS conserve los permisos TCC entre actualizaciones
+  (instalar `0.4.1` pide los permisos una ultima vez). Sin Developer ID ni
+  notarizacion: la primera apertura de una descarga manual sigue requiriendo
+  clic derecho > Abrir. Las actualizaciones de Sparkle no se ven afectadas
+  (validan la firma EdDSA del ZIP, independiente de Apple).
 - Bundle ID: `tech.686f6c61.screening-automation`.
 - macOS minimo: `13.0`.
 - Swift tools: `6.1`; Swift language mode: `6`.
@@ -119,11 +123,13 @@ variable de repo `RELEASE_SIGNING_MODE` (`developer-id` por defecto, `adhoc`
 explicito), el job:
 
 1. Espera aprobacion del Environment protegido `release`.
-2. En modo `developer-id`: importa un certificado `Developer ID Application`,
-   firma con Hardened Runtime y timestamp, notariza con `notarytool`, adjunta
-   el ticket y exige que Gatekeeper acepte.
-3. Firma ZIP, feed y notas con EdDSA; el feed usa URLs del tag y no anuncia deltas no publicados.
-4. Genera un cask con SHA-256 y publica un draft que pasa a release inmutable.
+2. En modo `adhoc` (actual): importa la identidad estable `Screening Automation
+   Release` y firma la app con Hardened Runtime.
+3. En modo `developer-id`: importa un certificado `Developer ID Application`,
+   anade timestamp seguro, notariza con `notarytool`, adjunta el ticket y
+   exige que Gatekeeper acepte.
+4. Firma ZIP, feed y notas con EdDSA; el feed usa URLs del tag y no anuncia deltas no publicados.
+5. Genera un cask con SHA-256 y publica un draft que pasa a release inmutable.
 
 Secretos del Environment `release`:
 

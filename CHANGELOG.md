@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.4.1 - Sin publicar
+
+- Las releases se firman con la identidad estable `Screening Automation
+  Release` para que macOS conserve los permisos entre actualizaciones; la firma
+  `adhoc` anterior cambiaba con cada version y TCC volvia a pedir todos los
+  permisos aunque Ajustes los mostrara concedidos.
+- La app ya no reabre Ajustes del Sistema tras cada captura fallida y el
+  dialogo automatico de permiso de captura se muestra como mucho una vez por
+  sesion.
+- Corregida la maquetacion de Ajustes: ventana mas alta y redimensionable, las
+  cinco secciones visibles, iconos de ayuda junto a su etiqueta y valores
+  alineados a la derecha.
+- La caja de log de Diagnostico muestra un mensaje cuando no hay eventos.
+- Anadido el argumento de arranque `--settings` para abrir Ajustes al lanzar.
+
 ## 0.4.0 - 2026-10-11
 
 - Aniadido onboarding de primera ejecucion con tres pasos: zona, permisos y disparadores.
