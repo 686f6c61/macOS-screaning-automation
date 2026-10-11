@@ -61,6 +61,7 @@ final class CaptureManager: ObservableObject {
     private var armedCaptureRemaining = 0
     private var armedCaptureTotal = 0
     private var armedCaptureInFlight = false
+    private var didAutoRequestScreenPermission = false
 
     init(
         settings: AppSettings,
@@ -112,9 +113,9 @@ final class CaptureManager: ObservableObject {
                         self.lastCaptureSucceeded = false
                         self.lastMessage = error.localizedDescription
                         DiagnosticLog.write("capture failed error=\(error.localizedDescription)")
-                        if !ScreenCapturePermission.allowed {
+                        if !ScreenCapturePermission.allowed, !self.didAutoRequestScreenPermission {
+                            self.didAutoRequestScreenPermission = true
                             _ = ScreenCapturePermission.request()
-                            ScreenCapturePermission.openSettings()
                         }
                         NSSound.beep()
                     }

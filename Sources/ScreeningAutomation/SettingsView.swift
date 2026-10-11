@@ -35,7 +35,7 @@ struct SettingsView: View {
             footer
         }
         .padding(16)
-        .frame(width: 520, height: 560)
+        .frame(minWidth: 540, idealWidth: 560, minHeight: 600, idealHeight: 680)
     }
 
     private var header: some View {
@@ -113,15 +113,18 @@ struct SettingsView: View {
                 }
 
             HStack(spacing: 4) {
+                Text("Formato")
+                InfoHint(text: HelpText.imageFormat)
+                Spacer()
                 Picker("Formato", selection: $settings.imageFormat) {
                     ForEach(ImageFormat.allCases) { format in
                         Text(format.label).tag(format)
                     }
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 160)
+                .labelsHidden()
+                .frame(width: 220)
                 .help(HelpText.imageFormat)
-                InfoHint(text: HelpText.imageFormat)
             }
             }
             .padding(6)
@@ -143,7 +146,6 @@ struct SettingsView: View {
                         .help(HelpText.clickCount)
                     InfoHint(text: HelpText.clickCount)
                     Spacer()
-                    InfoHint(text: HelpText.clickWindow)
                     Text("\(settings.clickWindowSeconds, specifier: "%.1f") s")
                         .foregroundStyle(.secondary)
                         .frame(width: 48, alignment: .trailing)
@@ -182,7 +184,6 @@ struct SettingsView: View {
                     .help(HelpText.hoverCorner)
                     InfoHint(text: HelpText.hoverCorner)
                     Spacer()
-                    InfoHint(text: HelpText.hoverTimeout)
                     Text("\(settings.hoverGestureTimeoutSeconds, specifier: "%.1f") s")
                         .foregroundStyle(.secondary)
                         .frame(width: 48, alignment: .trailing)
@@ -351,8 +352,9 @@ struct SettingsView: View {
     }
 
     private var logBox: some View {
-        ScrollView {
-            Text(DiagnosticLog.recentLines(30).joined(separator: "\n"))
+        let lines = DiagnosticLog.recentLines(30)
+        return ScrollView {
+            Text(lines.isEmpty ? L10n.t("Sin eventos registrados.") : lines.joined(separator: "\n"))
                 .font(.system(.caption2, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)

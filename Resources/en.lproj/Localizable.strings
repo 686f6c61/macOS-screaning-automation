@@ -128,3 +128,4 @@
 "macOS exige dos permisos para escuchar clics y capturar la pantalla." = "macOS requires two permissions to listen for clicks and capture the screen.";
 "screencapture termino con codigo %d." = "screencapture exited with code %d.";
 "screencapture termino con codigo %d: %@" = "screencapture exited with code %d: %@";
+"Sin eventos registrados." = "No events recorded.";

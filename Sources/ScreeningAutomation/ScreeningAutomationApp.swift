@@ -19,6 +19,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApplication.shared.setActivationPolicy(.accessory)
         AppController.shared.start()
         AppController.shared.showOnboardingIfNeeded()
+        if CommandLine.arguments.contains("--settings") {
+            AppController.shared.openSettingsWindow()
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -94,9 +97,9 @@ final class AppController: NSObject, ObservableObject, NSWindowDelegate {
         }
 
         let hostingController = NSHostingController(rootView: SettingsView(controller: self))
-        let visibleFrame = NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 620, height: 720)
-        let windowWidth = min(CGFloat(560), visibleFrame.width - 40)
-        let windowHeight = min(CGFloat(620), visibleFrame.height - 60)
+        let visibleFrame = NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 620, height: 760)
+        let windowWidth = min(CGFloat(580), visibleFrame.width - 40)
+        let windowHeight = min(CGFloat(680), visibleFrame.height - 60)
         let window = NSWindow(
             contentRect: CGRect(x: 0, y: 0, width: windowWidth, height: windowHeight),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -106,7 +109,7 @@ final class AppController: NSObject, ObservableObject, NSWindowDelegate {
         window.title = "Screening Automation"
         window.contentViewController = hostingController
         window.isReleasedWhenClosed = false
-        window.minSize = CGSize(width: min(CGFloat(500), windowWidth), height: min(CGFloat(420), windowHeight))
+        window.minSize = CGSize(width: min(CGFloat(540), windowWidth), height: min(CGFloat(560), windowHeight))
         window.collectionBehavior = [.moveToActiveSpace]
         window.center()
         settingsWindow = window

@@ -1,0 +1,69 @@
+name: Signing test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sign:
+    name: Verify release identity signing
+    runs-on: macos-latest
+    environment: release
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Import release signing identity
+        env:
+          RELEASE_IDENTITY_P12: ${{ secrets.RELEASE_IDENTITY_P12 }}
+          RELEASE_IDENTITY_PASSWORD: ${{ secrets.RELEASE_IDENTITY_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/screening-automation-signing.keychain-db"
+          CERTIFICATE_PATH="$RUNNER_TEMP/release-identity.p12"
+          printf '%s' "$RELEASE_IDENTITY_P12" | /usr/bin/base64 -D > "$CERTIFICATE_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" \
+            -P "$RELEASE_IDENTITY_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_PATH"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep 'Screening Automation Release'
+          rm -f "$CERTIFICATE_PATH"
+
+      - name: Build app with release identity
+        env:
+          CODESIGN_IDENTITY: "Screening Automation Release"
+        run: |
+          swift build -c release
+          ./scripts/build_app.sh
+
+      - name: Verify signature
+        run: |
+          APP=".build/release/Screening Automation.app"
+          codesign --verify --deep --strict "$APP"
+          codesign -d --verbose=4 "$APP" 2>&1 | grep 'Authority=Screening Automation Release:'
+          codesign -d --verbose=4 "$APP" 2>&1 | grep -E 'flags=.*runtime'
+          echo "Release identity signing works"
+
+      - name: Remove temporary keychain
+        if: always()
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/screening-automation-signing.keychain-db"
+          if [[ -f "$KEYCHAIN_PATH" ]]; then
+            security delete-keychain "$KEYCHAIN_PATH"
+          fi

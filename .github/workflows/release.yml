@@ -59,6 +59,8 @@ jobs:
           DEVELOPER_ID_APPLICATION_PASSWORD: ${{ secrets.DEVELOPER_ID_APPLICATION_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          RELEASE_IDENTITY_P12: ${{ secrets.RELEASE_IDENTITY_P12 }}
+          RELEASE_IDENTITY_PASSWORD: ${{ secrets.RELEASE_IDENTITY_PASSWORD }}
         run: |
           if [[ "$SIGNING_MODE" == "developer-id" ]]; then
             REQUIRED_SECRETS=(
@@ -71,8 +73,12 @@ jobs:
               SPARKLE_PRIVATE_KEY
             )
           else
-            REQUIRED_SECRETS=(SPARKLE_PRIVATE_KEY)
-            echo "::warning::SIGNING_MODE=adhoc: the artifact will not be notarized and Gatekeeper will require an explicit open. Set the repository variable RELEASE_SIGNING_MODE=developer-id to restore the hardened pipeline."
+            REQUIRED_SECRETS=(
+              SPARKLE_PRIVATE_KEY
+              RELEASE_IDENTITY_P12
+              RELEASE_IDENTITY_PASSWORD
+            )
+            echo "::notice::SIGNING_MODE=adhoc: notarization is skipped and the app is signed with the stable RELEASE_IDENTITY certificate. Set RELEASE_SIGNING_MODE=developer-id to restore the hardened pipeline."
           fi
           for variable in "${REQUIRED_SECRETS[@]}"; do
             if [[ -z "${!variable}" ]]; then
@@ -115,9 +121,39 @@ jobs:
           rm -f "$CERTIFICATE_PATH"
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
 
+      - name: Import release signing identity
+        if: env.SIGNING_MODE != 'developer-id'
+        env:
+          RELEASE_IDENTITY_P12: ${{ secrets.RELEASE_IDENTITY_P12 }}
+          RELEASE_IDENTITY_PASSWORD: ${{ secrets.RELEASE_IDENTITY_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/screening-automation-signing.keychain-db"
+          CERTIFICATE_PATH="$RUNNER_TEMP/release-identity.p12"
+          printf '%s' "$RELEASE_IDENTITY_P12" | /usr/bin/base64 -D > "$CERTIFICATE_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" \
+            -P "$RELEASE_IDENTITY_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_PATH"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep 'Screening Automation Release'
+          rm -f "$CERTIFICATE_PATH"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
       - name: Build app
         env:
           RELEASE_BUILD: ${{ env.SIGNING_MODE == 'developer-id' && '1' || '0' }}
+          CODESIGN_IDENTITY: ${{ env.SIGNING_MODE != 'developer-id' && 'Screening Automation Release' || '' }}
         run: ./scripts/build_app.sh
 
       - name: Notarize and staple
@@ -180,6 +216,9 @@ jobs:
             codesign -d --verbose=4 "$APP" 2>&1 | grep -E 'flags=.*runtime'
             xcrun stapler validate "$APP"
             spctl --assess --type execute --verbose=4 "$APP"
+          else
+            codesign -d --verbose=4 "$APP" 2>&1 | grep 'Authority=Screening Automation Release:'
+            codesign -d --verbose=4 "$APP" 2>&1 | grep -E 'flags=.*runtime'
           fi
           ruby -c releases/screening-automation.rb
           EXPECTED_SHA="$(shasum -a 256 "$ZIP" | awk '{print $1}')"
