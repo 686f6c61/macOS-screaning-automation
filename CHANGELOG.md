@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.2 - Sin publicar
+## 0.4.2 - 2026-10-12
 
 - Corregido el fallo de arranque de la `0.4.1`: con Hardened Runtime y una
   identidad sin Team ID de Apple, la validacion de bibliotecas rechazaba
