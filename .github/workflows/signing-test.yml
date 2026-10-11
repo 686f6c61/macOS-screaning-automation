@@ -61,7 +61,19 @@ jobs:
           codesign --verify --deep --strict "$APP"
           codesign -d --verbose=4 "$APP" 2>&1 | grep 'Authority=Screening Automation Release'
           codesign -d --verbose=4 "$APP" 2>&1 | grep -E 'flags=.*runtime'
+          codesign -d --entitlements - "$APP" 2>&1 | grep 'disable-library-validation'
           echo "Release identity signing works"
+
+      - name: Launch app
+        run: |
+          open ".build/release/Screening Automation.app"
+          sleep 8
+          if ! pgrep -f "Screening Automation.app/Contents/MacOS/ScreeningAutomation" >/dev/null; then
+            echo "::error::App did not stay running after launch (dyld or AMFI rejection)"
+            exit 1
+          fi
+          echo "App launched and stayed running"
+          pkill -f "Screening Automation.app/Contents/MacOS/ScreeningAutomation" || true
 
       - name: Remove temporary keychain
         if: always()

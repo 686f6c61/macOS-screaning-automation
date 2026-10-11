@@ -64,7 +64,7 @@ if [[ "$SIGNING_IDENTITY" != "-" ]]; then
   sign_item "$SPARKLE_VERSION_DIR/Updater.app"
   sign_item "$SPARKLE_DST"
 fi
-sign_item "$APP_DIR"
+sign_item "$APP_DIR" --entitlements "$ROOT_DIR/Resources/ReleaseEntitlements.plist"
 
 /usr/bin/codesign --verify --deep --strict "$APP_DIR"
 if [[ "$RELEASE_BUILD" == "1" ]]; then

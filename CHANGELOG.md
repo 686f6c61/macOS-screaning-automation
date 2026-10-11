@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.2 - Sin publicar
+
+- Corregido el fallo de arranque de la `0.4.1`: con Hardened Runtime y una
+  identidad sin Team ID de Apple, la validacion de bibliotecas rechazaba
+  `Sparkle.framework` en el arranque y la app se cerraba sin aparecer en la
+  barra de menu. La app se firma ahora con el entitlement
+  `com.apple.security.cs.disable-library-validation`, tal como documenta
+  Sparkle para distribucion directa.
+- El workflow `Signing test` ademas de firmar ahora arranca la app y comprueba
+  que el proceso sigue vivo, para no volver a publicar un binario que no carga.
+
 ## 0.4.1 - 2026-10-12
 
 - Las releases se firman con la identidad estable `Screening Automation

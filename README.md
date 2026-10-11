@@ -11,7 +11,10 @@ mostrar el selector durante cada captura.
 
 - Ultima version publica: `0.4.1` (2026-10-12). Es la que GitHub muestra como
   `Latest`, la que instala Homebrew y la que ofrece Sparkle al actualizar.
-- Version en `main`: `0.4.1` (`CFBundleVersion` 10), igual a la publicada.
+  Importante: la `0.4.1` no arranca en macOS por un rechazo de validacion de
+  bibliotecas; actualiza a `0.4.2` en cuanto este publicada.
+- Version en preparacion en `main`: `0.4.2` (`CFBundleVersion` 11), sin
+  publicar; sus cambios estan en el changelog bajo `0.4.2 - Sin publicar`.
 - Firma actual: identidad propia estable `Screening Automation Release` desde
   `0.4.1`, para que macOS conserve los permisos TCC entre actualizaciones
   (instalar `0.4.1` pide los permisos una ultima vez). Sin Developer ID ni
