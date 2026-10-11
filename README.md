@@ -9,10 +9,9 @@ mostrar el selector durante cada captura.
 
 ## Estado
 
-- Ultima version publica: `0.4.0` (2026-10-11). Es la que GitHub muestra como
+- Ultima version publica: `0.4.1` (2026-10-12). Es la que GitHub muestra como
   `Latest`, la que instala Homebrew y la que ofrece Sparkle al actualizar.
-- Version en preparacion en `main`: `0.4.1` (`CFBundleVersion` 10), sin
-  publicar; sus cambios estan en el changelog bajo `0.4.1 - Sin publicar`.
+- Version en `main`: `0.4.1` (`CFBundleVersion` 10), igual a la publicada.
 - Firma actual: identidad propia estable `Screening Automation Release` desde
   `0.4.1`, para que macOS conserve los permisos TCC entre actualizaciones
   (instalar `0.4.1` pide los permisos una ultima vez). Sin Developer ID ni
@@ -50,8 +49,8 @@ El tap real es
 `686f6c61/homebrew-macOS-screaning-automation`. Su CI consulta cada seis horas
 el cask incluido en la ultima release inmutable y conserva el SHA-256 publicado.
 Mientras no se publique una version firmada con Developer ID y notarizada, la
-distribucion publica (`0.4.0`, firma `adhoc`) puede ser rechazada por
-Gatekeeper; se abre con clic derecho > Abrir.
+distribucion publica (`0.4.1`, identidad propia sin notarizar) puede ser
+rechazada por Gatekeeper; se abre con clic derecho > Abrir.
 
 ## Uso
 

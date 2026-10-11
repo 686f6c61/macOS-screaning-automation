@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.1 - Sin publicar
+## 0.4.1 - 2026-10-12
 
 - Las releases se firman con la identidad estable `Screening Automation
   Release` para que macOS conserve los permisos entre actualizaciones; la firma
