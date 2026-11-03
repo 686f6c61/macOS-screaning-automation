@@ -94,7 +94,9 @@
 "No hay una zona definida." = "No hay una zona definida.";
 "No se encontro la pantalla de la zona." = "No se encontro la pantalla de la zona.";
 "No se pudieron leer los ajustes guardados; se han restaurado los valores por defecto." = "No se pudieron leer los ajustes guardados; se han restaurado los valores por defecto.";
+"No se pudo confirmar el permiso de Grabacion de pantalla; vuelve a intentarlo." = "No se pudo confirmar el permiso de Grabación de pantalla; vuelve a intentarlo.";
 "No se pudo crear imagen de la zona." = "No se pudo crear imagen de la zona.";
+"No se pudo iniciar la escritura del video: %@" = "No se pudo iniciar la escritura del vídeo: %@";
 "No se pudo preparar el archivo de video." = "No se pudo preparar el archivo de video.";
 "No se pudo preparar el archivo de video: %@" = "No se pudo preparar el archivo de vídeo: %@";
 "No se recibio ningun fotograma de la pantalla." = "No se recibió ningún fotograma de la pantalla.";
@@ -131,6 +133,7 @@
 "Segundos de espera antes de comenzar la serie de capturas." = "Segundos de espera antes de comenzar la serie de capturas.";
 "Segundos maximos en los que deben caer los clics para contar como una rafaga." = "Segundos maximos en los que deben caer los clics para contar como una rafaga.";
 "Separacion en segundos entre las capturas de la serie." = "Separacion en segundos entre las capturas de la serie.";
+"simulacion" = "simulación";
 "Sin disparos" = "Sin disparos";
 "Sin eventos" = "Sin eventos";
 "Sin eventos registrados." = "Sin eventos registrados.";

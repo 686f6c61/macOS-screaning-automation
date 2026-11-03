@@ -1,6 +1,10 @@
+// Punto de entrada: app de barra de menús (sin icono en el Dock) con su menú,
+// el delegado de la aplicación y el controlador que conecta los modelos.
+
 import AppKit
 import SwiftUI
 
+/// App de barra de menús «SA».
 @main
 struct ScreeningAutomationApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
@@ -14,6 +18,7 @@ struct ScreeningAutomationApp: App {
     }
 }
 
+/// Arranque, bienvenida y salida ordenada (espera a cerrar el vídeo en curso).
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
@@ -44,6 +49,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+/// Crea y conecta los modelos (ajustes, permisos, captura, vídeo,
+/// activadores, actualizaciones) y gestiona las ventanas de Ajustes y de
+/// bienvenida. Es un singleton porque hay un único estado de app.
 @MainActor
 final class AppController: NSObject, ObservableObject, NSWindowDelegate {
     static let shared = AppController()
@@ -79,13 +87,15 @@ final class AppController: NSObject, ObservableObject, NSWindowDelegate {
         }
     }
 
+    /// Prepara el log y arranca la vigilancia de permisos y los activadores.
     func start() {
         DiagnosticLog.prepare()
         permissions.startMonitoring()
         eventMonitor.start()
     }
 
-    func captureNow(source: String) {
+    /// Captura la zona configurada.
+    func captureNow(source: TriggerSource) {
         captureManager.captureNow(source: source)
     }
 
@@ -106,12 +116,14 @@ final class AppController: NSObject, ObservableObject, NSWindowDelegate {
         }
     }
 
+    /// Abre la selección interactiva de zona y guarda la elegida.
     func defineRegion() {
         regionSelectionCoordinator.begin { [weak settings] region in
             settings?.selectedRegion = region
         }
     }
 
+    /// Muestra la ventana de Ajustes, creándola la primera vez.
     func openSettingsWindow() {
         if let settingsWindow {
             show(settingsWindow)
@@ -143,6 +155,7 @@ final class AppController: NSObject, ObservableObject, NSWindowDelegate {
         window.makeKeyAndOrderFront(nil)
     }
 
+    /// Muestra la bienvenida si es la primera ejecución.
     func showOnboardingIfNeeded() {
         guard !settings.hadPersistedSettings,
               !UserDefaults.standard.bool(forKey: Self.onboardingCompletedKey) else {
@@ -194,6 +207,7 @@ final class AppController: NSObject, ObservableObject, NSWindowDelegate {
     }
 }
 
+/// Contenido del menú de la barra de menús.
 private struct MenuContent: View {
     @ObservedObject private var settings: AppSettings
     @ObservedObject private var captureManager: CaptureManager
@@ -215,18 +229,14 @@ private struct MenuContent: View {
 
     var body: some View {
         Button {
-            controller.captureNow(source: "menu")
+            controller.captureNow(source: .menu)
         } label: {
             Label("Capturar ahora", systemImage: "camera")
         }
         .disabled(settings.selectedRegion == nil || captureManager.isCapturing)
 
         Button {
-            if captureManager.armedCaptureActive {
-                captureManager.cancelArmedBurst()
-            } else {
-                captureManager.startArmedBurst()
-            }
+            captureManager.toggleArmedBurst()
         } label: {
             Label(
                 captureManager.armedCaptureActive ? L10n.t("Cancelar modo armado") : L10n.t("Armar rafaga"),
@@ -289,8 +299,8 @@ private struct MenuContent: View {
             Text("Sin zona")
         }
         Label(
-            permissionsReady ? L10n.t("Permisos OK") : L10n.t("Permisos pendientes"),
-            systemImage: permissionsReady ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
+            permissions.summary,
+            systemImage: permissions.allAllowed ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
         )
         Text(captureManager.lastMessage)
         if captureManager.armedCaptureActive {
@@ -312,9 +322,5 @@ private struct MenuContent: View {
         } label: {
             Label("Salir", systemImage: "power")
         }
-    }
-
-    private var permissionsReady: Bool {
-        permissions.screenCaptureAllowed && permissions.inputMonitoringAllowed
     }
 }

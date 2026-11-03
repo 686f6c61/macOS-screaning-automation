@@ -123,6 +123,45 @@ final class ClickBurstDetectorTests: XCTestCase {
     }
 }
 
+final class CornerHoldDetectorTests: XCTestCase {
+    private let start = Date(timeIntervalSince1970: 5_000)
+
+    func testTriggersOnceAfterHoldingAndRearmsAfterLeaving() {
+        var detector = CornerHoldDetector()
+
+        XCTAssertEqual(tick(&detector, 0, inCorner: true), .holding(elapsed: 0, justStarted: true))
+        XCTAssertEqual(tick(&detector, 1, inCorner: true), .holding(elapsed: 1, justStarted: false))
+        XCTAssertEqual(tick(&detector, 2, inCorner: true), .triggered)
+        // Sigue en la esquina: no vuelve a disparar.
+        XCTAssertEqual(tick(&detector, 5, inCorner: true), .holding(elapsed: 5, justStarted: false))
+        XCTAssertEqual(tick(&detector, 6, inCorner: false), .outside(wasHolding: true))
+        XCTAssertEqual(tick(&detector, 7, inCorner: false), .outside(wasHolding: false))
+        XCTAssertEqual(tick(&detector, 8, inCorner: true), .holding(elapsed: 0, justStarted: true))
+    }
+
+    func testCooldownDelaysTrigger() {
+        var detector = CornerHoldDetector()
+
+        _ = tick(&detector, 0, inCorner: true)
+        XCTAssertEqual(tick(&detector, 3, inCorner: true, cooldownElapsed: false), .holding(elapsed: 3, justStarted: false))
+        XCTAssertEqual(tick(&detector, 4, inCorner: true), .triggered)
+    }
+
+    private func tick(
+        _ detector: inout CornerHoldDetector,
+        _ seconds: TimeInterval,
+        inCorner: Bool,
+        cooldownElapsed: Bool = true
+    ) -> CornerHoldOutcome {
+        detector.tick(
+            at: start.addingTimeInterval(seconds),
+            inCorner: inCorner,
+            holdSeconds: 2,
+            cooldownElapsed: cooldownElapsed
+        )
+    }
+}
+
 final class CaptureImageInspectorTests: XCTestCase {
     func testRejectsOpaqueBlackImage() throws {
         let image = try makeImage(red: 0, green: 0, blue: 0, alpha: 1)
@@ -183,6 +222,14 @@ final class LocalPrivacyTests: XCTestCase {
         XCTAssertTrue(sanitized.hasSuffix("size=10x10"))
     }
 
+    func testDiagnosticMessagesRedactPathsFollowedByNewline() {
+        let message = "details=/Volumes/Disco X/a.png\nsegunda linea"
+        let sanitized = DiagnosticLog.sanitizedMessage(message)
+
+        XCTAssertFalse(sanitized.contains("Disco"))
+        XCTAssertTrue(sanitized.contains("segunda linea"))
+    }
+
     func testCaptureFilesArePrivate() throws {
         let fileURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("ScreeningAutomationTests-\(UUID().uuidString).png")
@@ -190,7 +237,7 @@ final class LocalPrivacyTests: XCTestCase {
 
         try Data([0]).write(to: fileURL)
         try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: fileURL.path)
-        CaptureManager.hardenCaptureFile(at: fileURL)
+        CaptureFiles.harden(at: fileURL)
 
         let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
         XCTAssertEqual(attributes[.posixPermissions] as? NSNumber, NSNumber(value: 0o600))
@@ -242,8 +289,10 @@ final class CorruptSettingsTests: XCTestCase {
         XCTAssertNotNil(settings.loadWarning)
         XCTAssertFalse(settings.hadPersistedSettings)
         XCTAssertEqual(settings.clickCount, AppSettings.defaultClickCount)
-        let backups = defaults.dictionaryRepresentation().filter { $0.key.contains(".unreadable-") }
-        XCTAssertEqual(backups.values.first as? Data, garbage)
+        XCTAssertEqual(defaults.data(forKey: AppSettings.unreadableBackupKey), garbage)
+        // La clave ilegible se retira: el aviso no se repite en cada arranque.
+        XCTAssertNil(defaults.data(forKey: "ScreeningAutomation.Settings.v1"))
+        XCTAssertNil(AppSettings(defaults: defaults).loadWarning)
     }
 }
 
@@ -290,14 +339,14 @@ final class EventTapMonitorTests: XCTestCase {
         settings.triggerCooldownSeconds = 1
         settings.triggersPaused = false
 
-        var triggerSources: [String] = []
+        var triggerSources: [TriggerSource] = []
         let monitor = EventTapMonitor(settings: settings) { source in
             triggerSources.append(source)
         }
 
         monitor.simulateClickBurst()
 
-        XCTAssertEqual(triggerSources, ["clicks"])
+        XCTAssertEqual(triggerSources, [.clicks])
         XCTAssertEqual(monitor.clickProgressDescription, "0/3")
         XCTAssertEqual(monitor.lastTriggerDescription, "Disparo por simulacion")
     }
@@ -332,12 +381,12 @@ final class ArmedCaptureTests: XCTestCase {
             captureExecutor: executor.capture
         )
 
-        manager.startArmedBurst()
+        manager.toggleArmedBurst()
         let firstCaptureStarted = await waitUntil { executor.startedCount == 1 }
         XCTAssertTrue(firstCaptureStarted)
 
         manager.cancelArmedBurst()
-        manager.startArmedBurst()
+        manager.toggleArmedBurst()
         executor.releaseCapture(number: 1)
 
         let cancelledCaptureFinished = await waitUntil { !manager.isCapturing }
@@ -545,6 +594,26 @@ final class VideoRecorderStateTests: XCTestCase {
         XCTAssertFalse(recorder.isRecording)
         XCTAssertFalse(recorder.isBusy)
         XCTAssertFalse(source.handle.finished)
+    }
+
+    /// Una interrupción que llega mientras la captura aún arranca no debe
+    /// perderse: se atiende en cuanto la grabación pasa a `recording`.
+    func testInterruptionDuringStartIsHandledOnceRecording() async throws {
+        let source = FakeVideoSource()
+        source.holdStart = true
+        let recorder = VideoRecorder(settings: try makeSettings(), source: source)
+
+        recorder.start()
+        let started = await waitUntil { source.startCount == 1 }
+        XCTAssertTrue(started)
+        source.interrupt("pantalla desconectada")
+        try? await Task.sleep(for: .milliseconds(50))
+        source.releaseStart()
+
+        let finished = await waitUntil { !recorder.isBusy }
+        XCTAssertTrue(finished)
+        XCTAssertTrue(source.handle.finished)
+        XCTAssertTrue(recorder.lastMessage.contains("pantalla desconectada"))
     }
 
     func testInterruptionSavesWhatWasRecorded() async throws {

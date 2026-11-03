@@ -126,15 +126,19 @@ enum DiagnosticLog {
             sanitized = sanitized.replacingOccurrences(of: homePath, with: "<home>")
         }
 
-        let pathEnd = #"(?=\s+[A-Za-z_]+=|["'“”]|$)"#
-        for pattern in [
-            #"<home>/[^\n"'“”]*?"# + pathEnd,
-            #"file://[^\n"'“”]*?"# + pathEnd,
-            #"/(?:Users|Volumes|private|var|tmp)/[^\n"'“”]*?"# + pathEnd
-        ] {
+        // Una ruta termina en el siguiente `clave=`, en una comilla, en un salto
+        // de línea o al final del mensaje.
+        let pathEnd = #"(?=\s+[A-Za-z_]+=|["'“”\n]|$)"#
+        // El orden importa: `<home>` debe ir antes que la regla genérica.
+        let rules: [(pattern: String, replacement: String)] = [
+            (#"<home>/[^\n"'“”]*?"# + pathEnd, "<home>/<path>"),
+            (#"file://[^\n"'“”]*?"# + pathEnd, "<path>"),
+            (#"/(?:Users|Volumes|private|var|tmp)/[^\n"'“”]*?"# + pathEnd, "<path>")
+        ]
+        for rule in rules {
             sanitized = sanitized.replacingOccurrences(
-                of: pattern,
-                with: pattern.hasPrefix("<home>") ? "<home>/<path>" : "<path>",
+                of: rule.pattern,
+                with: rule.replacement,
                 options: .regularExpression
             )
         }
@@ -169,8 +173,9 @@ enum DiagnosticLog {
         } catch {
             // Si no se puede rotar, se vacía el archivo actual: mejor perder el
             // historial que dejar de registrar para siempre.
-            NSLog("ScreeningAutomation diagnostic log rotation failed: \(error.localizedDescription)")
-            try Data().write(to: fileURL)
+            let note = sanitizedMessage("log rotation failed; log truncated error=\(error.localizedDescription)")
+            NSLog("ScreeningAutomation diagnostic \(note)")
+            try Data("\(Date().formatted(.iso8601)) \(note)\n".utf8).write(to: fileURL)
         }
     }
 }

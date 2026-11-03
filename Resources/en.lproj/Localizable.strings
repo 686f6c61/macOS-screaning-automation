@@ -94,7 +94,9 @@
 "No hay una zona definida." = "No region defined.";
 "No se encontro la pantalla de la zona." = "Could not find the display for the region.";
 "No se pudieron leer los ajustes guardados; se han restaurado los valores por defecto." = "Saved settings could not be read; defaults have been restored.";
+"No se pudo confirmar el permiso de Grabacion de pantalla; vuelve a intentarlo." = "Screen Recording permission could not be confirmed; please try again.";
 "No se pudo crear imagen de la zona." = "Could not create an image of the region.";
+"No se pudo iniciar la escritura del video: %@" = "Could not start writing the video: %@";
 "No se pudo preparar el archivo de video." = "Could not prepare the video file.";
 "No se pudo preparar el archivo de video: %@" = "Could not prepare the video file: %@";
 "No se recibio ningun fotograma de la pantalla." = "No frames were received from the screen.";
@@ -131,6 +133,7 @@
 "Segundos de espera antes de comenzar la serie de capturas." = "Seconds to wait before starting the capture series.";
 "Segundos maximos en los que deben caer los clics para contar como una rafaga." = "Maximum seconds within which clicks must fall to count as a burst.";
 "Separacion en segundos entre las capturas de la serie." = "Seconds between captures in the series.";
+"simulacion" = "simulation";
 "Sin disparos" = "No triggers";
 "Sin eventos" = "No events";
 "Sin eventos registrados." = "No events recorded.";

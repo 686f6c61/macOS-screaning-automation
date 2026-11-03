@@ -1,9 +1,11 @@
+// Asistente de bienvenida de tres pasos: zona, permisos y activadores.
+// Se muestra la primera vez que se abre la app (sin ajustes guardados).
+
 import SwiftUI
 
+/// Asistente de primera ejecución. `onFinish` se llama al pulsar «Empezar».
 struct OnboardingView: View {
     @ObservedObject private var settings: AppSettings
-    @ObservedObject private var permissions: PermissionStatus
-    @ObservedObject private var eventMonitor: EventTapMonitor
     private let controller: AppController
     private let onFinish: () -> Void
     @State private var step = 0
@@ -12,8 +14,6 @@ struct OnboardingView: View {
         self.controller = controller
         self.onFinish = onFinish
         _settings = ObservedObject(wrappedValue: controller.settings)
-        _permissions = ObservedObject(wrappedValue: controller.permissions)
-        _eventMonitor = ObservedObject(wrappedValue: controller.eventMonitor)
     }
 
     var body: some View {
@@ -86,22 +86,7 @@ struct OnboardingView: View {
                 L10n.t("Paso 2 de 3 - Permisos"),
                 L10n.t("macOS exige dos permisos para escuchar clics y capturar la pantalla.")
             )
-            PermissionRow(
-                title: "Monitorizacion de entrada",
-                allowed: permissions.inputMonitoringAllowed,
-                requestTitle: "Solicitar",
-                requestAction: controller.requestInputMonitoring,
-                settingsAction: eventMonitor.openInputMonitoringSettings,
-                helpText: HelpText.inputMonitoring
-            )
-            PermissionRow(
-                title: "Captura de pantalla",
-                allowed: permissions.screenCaptureAllowed,
-                requestTitle: "Solicitar",
-                requestAction: controller.requestScreenCapture,
-                settingsAction: ScreenCapturePermission.openSettings,
-                helpText: HelpText.screenCapture
-            )
+            PermissionRows(controller: controller)
             Text("Puedes concederlos mas tarde desde Ajustes. Al conceder Monitorizacion de entrada, macOS debe cerrar y volver a abrir la app.")
                 .font(.caption)
                 .foregroundStyle(.secondary)

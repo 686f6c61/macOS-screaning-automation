@@ -1,49 +1,25 @@
+// Orquestación de capturas: disparos sueltos y modo armado (ráfaga programada).
+//
+// La captura en sí la hace `CaptureEngine` en una cola de fondo; aquí solo se
+// gestiona el estado visible (mensajes, captura en curso, ráfaga activa).
+
 import AppKit
-import Darwin
-import ImageIO
 import Foundation
-import ScreenCaptureKit
-import UniformTypeIdentifiers
 
-struct CaptureRequest {
-    var region: CaptureRegion
-    var outputFolderPath: String
-    var imageFormat: ImageFormat
+/// Origen de un disparo de captura. Solo se usa para el diagnóstico.
+enum TriggerSource: String {
+    case clicks
+    case cornerHold = "corner-hold"
+    case menu
+    case header
+    case settings
+    case simulation
 }
 
-enum CaptureError: Error, LocalizedError {
-    case missingRegion
-    case processFailed(Int32, String)
-    case processTimedOut
-    case invalidImage
-    case coreGraphicsFailed
-    /// TCC deniega Grabación de pantalla. No se recurre a `screencapture`
-    /// porque sin permiso guarda solo el fondo de escritorio.
-    case screenRecordingDenied
-
-    var errorDescription: String? {
-        switch self {
-        case .screenRecordingDenied:
-            return L10n.t("Falta el permiso de Grabacion de pantalla. Activalo en Ajustes y reinicia la app.")
-        case .missingRegion:
-            return L10n.t("No hay una zona definida.")
-        case .processFailed(let status, let details):
-            if details.isEmpty {
-                return L10n.format("screencapture termino con codigo %d.", status)
-            }
-            return L10n.format("screencapture termino con codigo %d: %@", status, details)
-        case .processTimedOut:
-            return L10n.t("La captura ha superado el tiempo de espera.")
-        case .invalidImage:
-            return L10n.t("La captura no produjo una imagen valida.")
-        case .coreGraphicsFailed:
-            return L10n.t("No se pudo crear imagen de la zona.")
-        }
-    }
-}
-
+/// Estado observable de las capturas y del modo armado.
 @MainActor
 final class CaptureManager: ObservableObject {
+    /// Función que realiza una captura; los tests inyectan una falsa.
     typealias CaptureExecutor = @Sendable (CaptureRequest) -> Result<URL, Error>
 
     @Published private(set) var isCapturing = false
@@ -58,17 +34,38 @@ final class CaptureManager: ObservableObject {
     /// Se llama cuando una captura falla por falta de permiso.
     var onScreenRecordingDenied: (() -> Void)?
 
+    /// Una ráfaga del modo armado en curso.
+    private struct ArmedBurst {
+        let id = UUID()
+        let request: CaptureRequest
+        let total: Int
+        let timer: DispatchSourceTimer
+        var remaining: Int
+        var inFlight = false
+
+        /// Número (desde 1) de la próxima captura.
+        var nextIndex: Int {
+            total - remaining + 1
+        }
+    }
+
     private let settings: AppSettings
     private let captureExecutor: CaptureExecutor
+    /// Pausa antes de capturar para que se oculte la ventana de Ajustes.
     private let captureSettleDelay: TimeInterval
+    /// Identifica la captura en curso para descartar resultados que lleguen tarde.
     private var activeCaptureOperationID: UUID?
-    private var armedCaptureTimer: DispatchSourceTimer?
-    private var armedCaptureActivity: NSObjectProtocol?
-    private var armedCaptureRequest: CaptureRequest?
-    private var armedCaptureSessionID: UUID?
-    private var armedCaptureRemaining = 0
-    private var armedCaptureTotal = 0
-    private var armedCaptureInFlight = false
+    private var armedBurst: ArmedBurst? {
+        didSet {
+            armedCaptureActive = armedBurst != nil
+        }
+    }
+    private let armedActivity = ActivityAssertion(
+        reason: "Screening Automation armed capture",
+        logName: "armed capture"
+    )
+    /// `true` si `lastMessage` lo puso la ráfaga y debe actualizarse al acabar.
+    private var lastMessageFromArmedBurst = false
     private var didAutoRequestScreenPermission = false
 
     init(
@@ -78,79 +75,68 @@ final class CaptureManager: ObservableObject {
     ) {
         self.settings = settings
         self.captureSettleDelay = captureSettleDelay
-        self.captureExecutor = captureExecutor ?? Self.performCapture
+        self.captureExecutor = captureExecutor ?? CaptureEngine.capture
     }
 
+    // MARK: Captura suelta
+
     /// Captura la zona configurada. Se ignora si ya hay una captura en curso.
-    ///
-    /// - Parameter source: origen del disparo, solo para el diagnóstico.
-    func captureNow(source: String) {
+    func captureNow(source: TriggerSource) {
         guard !isCapturing else {
-            DiagnosticLog.write("capture skipped source=\(source) reason=in-flight")
+            DiagnosticLog.write("capture skipped source=\(source.rawValue) reason=in-flight")
             return
         }
         guard let request = settings.captureRequest() else {
-            lastMessage = CaptureError.missingRegion.localizedDescription
-            lastCaptureSucceeded = false
-            DiagnosticLog.write("capture skipped source=\(source) reason=missing-region")
-            NSSound.beep()
+            reportMissingRegion(context: "capture source=\(source.rawValue)")
             return
         }
 
-        isCapturing = true
-        let operationID = UUID()
-        activeCaptureOperationID = operationID
-        lastMessage = L10n.t("Capturando...")
+        let operationID = beginCapture()
+        setMessage(L10n.t("Capturando..."), fromArmedBurst: false)
         prepareForCapture?()
-        DiagnosticLog.write("capture started source=\(source) size=\(request.region.width)x\(request.region.height)")
-        let captureExecutor = captureExecutor
+        DiagnosticLog.write("capture started source=\(source.rawValue) size=\(request.region.width)x\(request.region.height)")
 
+        let captureExecutor = captureExecutor
         DispatchQueue.main.asyncAfter(deadline: .now() + captureSettleDelay) {
             DispatchQueue.global(qos: .userInitiated).async {
                 let result = captureExecutor(request)
                 DispatchQueue.main.async {
-                    guard self.activeCaptureOperationID == operationID else {
+                    guard self.endCapture(operationID) else {
                         DiagnosticLog.write("capture completion ignored reason=stale-operation")
                         return
                     }
-                    self.activeCaptureOperationID = nil
-                    self.isCapturing = false
-                    switch result {
-                    case .success(let url):
-                        self.lastCaptureURL = url
-                        self.lastCaptureSucceeded = true
-                        self.lastMessage = L10n.format("Guardado: %@", url.lastPathComponent)
-                        DiagnosticLog.write("capture succeeded file=\(url.lastPathComponent)")
-                    case .failure(let error):
-                        self.lastCaptureSucceeded = false
-                        self.lastMessage = error.localizedDescription
-                        DiagnosticLog.write("capture failed error=\(error.localizedDescription)")
-                        if case CaptureError.screenRecordingDenied = error {
-                            self.onScreenRecordingDenied?()
-                            // Solo una vez por ejecución, para no insistir.
-                            if !self.didAutoRequestScreenPermission {
-                                self.didAutoRequestScreenPermission = true
-                                ScreenCapturePermission.requestOrOpenSettings()
-                            }
-                        }
-                        NSSound.beep()
+                    if self.apply(result, fromArmedBurst: false) {
+                        DiagnosticLog.write("capture succeeded")
                     }
                 }
             }
         }
     }
 
-    func startArmedBurst() {
-        guard !armedCaptureActive else {
+    // MARK: Modo armado
+
+    /// Arma una ráfaga con los ajustes actuales o, si ya hay una, la cancela.
+    func toggleArmedBurst() {
+        if armedBurst != nil {
             cancelArmedBurst()
+        } else {
+            startArmedBurst()
+        }
+    }
+
+    /// Cancela la ráfaga en curso, si la hay.
+    func cancelArmedBurst() {
+        guard armedBurst != nil else {
             return
         }
+        finishArmedBurst(message: L10n.t("Modo armado cancelado"))
+        DiagnosticLog.write("armed burst cancelled")
+    }
+
+    private func startArmedBurst() {
         guard let request = settings.captureRequest() else {
-            lastMessage = CaptureError.missingRegion.localizedDescription
-            lastCaptureSucceeded = false
             armedCaptureMessage = CaptureError.missingRegion.localizedDescription
-            DiagnosticLog.write("armed burst skipped reason=missing-region")
-            NSSound.beep()
+            reportMissingRegion(context: "armed burst")
             return
         }
 
@@ -159,394 +145,158 @@ final class CaptureManager: ObservableObject {
         let interval = settings.armedCaptureIntervalSeconds
         let total = settings.armedCaptureCount
 
-        armedCaptureRequest = request
-        let sessionID = UUID()
-        armedCaptureSessionID = sessionID
-        armedCaptureRemaining = total
-        armedCaptureTotal = total
-        armedCaptureInFlight = false
-        armedCaptureActive = true
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        let burst = ArmedBurst(request: request, total: total, timer: timer, remaining: total)
+        armedBurst = burst
         armedCaptureMessage = L10n.format("Armado: espera %@ s", delay.formatted(.number.precision(.fractionLength(1))))
-        lastMessage = armedCaptureMessage
-        beginArmedCaptureActivity()
+        setMessage(armedCaptureMessage, fromArmedBurst: true)
+        armedActivity.begin()
         DiagnosticLog.write("armed burst scheduled delay=\(delay) interval=\(interval) count=\(total)")
 
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(
-            deadline: .now() + delay,
-            repeating: interval,
-            leeway: .milliseconds(80)
-        )
+        let burstID = burst.id
+        timer.schedule(deadline: .now() + delay, repeating: interval, leeway: .milliseconds(80))
         timer.setEventHandler { [weak self] in
-            self?.runArmedCaptureTick(sessionID: sessionID)
+            self?.runArmedCaptureTick(burstID: burstID)
         }
-        armedCaptureTimer = timer
         timer.resume()
     }
 
-    func cancelArmedBurst() {
-        guard let sessionID = armedCaptureSessionID else {
+    private func runArmedCaptureTick(burstID: UUID) {
+        guard var burst = armedBurst, burst.id == burstID else {
             return
         }
-        finishArmedBurst(sessionID: sessionID, message: L10n.t("Modo armado cancelado"))
-        DiagnosticLog.write("armed burst cancelled")
-    }
-
-    private func runArmedCaptureTick(sessionID: UUID) {
-        guard armedCaptureActive, armedCaptureSessionID == sessionID else {
-            return
-        }
-        guard !armedCaptureInFlight, !isCapturing else {
+        guard !burst.inFlight, !isCapturing else {
             DiagnosticLog.write("armed burst tick skipped reason=capture-in-flight")
             return
         }
-        guard let request = armedCaptureRequest else {
-            finishArmedBurst(sessionID: sessionID, message: L10n.t("Modo armado sin zona"))
-            return
-        }
-        guard armedCaptureRemaining > 0 else {
-            finishArmedBurst(sessionID: sessionID, message: L10n.t("Modo armado finalizado"))
+        guard burst.remaining > 0 else {
+            finishArmedBurst(message: L10n.t("Modo armado finalizado"))
             return
         }
 
-        let index = armedCaptureTotal - armedCaptureRemaining + 1
-        armedCaptureRemaining -= 1
-        armedCaptureInFlight = true
-        isCapturing = true
-        let operationID = UUID()
-        activeCaptureOperationID = operationID
-        armedCaptureMessage = L10n.format("Armado: captura %d/%d", index, armedCaptureTotal)
-        lastMessage = armedCaptureMessage
-        DiagnosticLog.write("armed burst capture started index=\(index) remaining=\(armedCaptureRemaining)")
+        let index = burst.nextIndex
+        burst.remaining -= 1
+        burst.inFlight = true
+        armedBurst = burst
+        let operationID = beginCapture()
+        armedCaptureMessage = L10n.format("Armado: captura %d/%d", index, burst.total)
+        setMessage(armedCaptureMessage, fromArmedBurst: true)
+        DiagnosticLog.write("armed burst capture started index=\(index) remaining=\(burst.remaining)")
 
         let captureExecutor = captureExecutor
+        let request = burst.request
         DispatchQueue.global(qos: .userInitiated).async {
             let result = captureExecutor(request)
             DispatchQueue.main.async {
-                if self.activeCaptureOperationID == operationID {
-                    self.activeCaptureOperationID = nil
-                    self.isCapturing = false
-                }
-                guard self.armedCaptureSessionID == sessionID else {
-                    DiagnosticLog.write("armed burst completion ignored reason=stale-session")
-                    return
-                }
-                self.armedCaptureInFlight = false
-                switch result {
-                case .success(let url):
-                    self.lastCaptureURL = url
-                    self.lastCaptureSucceeded = true
-                    self.lastMessage = L10n.format("Guardado: %@", url.lastPathComponent)
-                    self.armedCaptureMessage = L10n.format("Armado: guardada %d/%d", index, self.armedCaptureTotal)
-                    DiagnosticLog.write("armed burst capture succeeded index=\(index) file=\(url.lastPathComponent)")
-                case .failure(let error):
-                    self.lastCaptureSucceeded = false
-                    self.lastMessage = error.localizedDescription
-                    self.armedCaptureMessage = L10n.format("Armado: error %d/%d", index, self.armedCaptureTotal)
-                    DiagnosticLog.write("armed burst capture failed index=\(index) error=\(error.localizedDescription)")
-                    NSSound.beep()
-                    // Sin permiso, el resto de capturas fallarían igual: se
-                    // aborta la ráfaga en lugar de repetir el error y el pitido.
-                    if case CaptureError.screenRecordingDenied = error {
-                        self.onScreenRecordingDenied?()
-                        self.finishArmedBurst(sessionID: sessionID, message: error.localizedDescription)
-                        return
-                    }
-                }
-
-                if self.armedCaptureRemaining <= 0 {
-                    self.finishArmedBurst(sessionID: sessionID, message: L10n.t("Modo armado finalizado"))
-                }
+                _ = self.endCapture(operationID)
+                self.completeArmedCapture(result, burstID: burstID, index: index)
             }
         }
     }
 
-    private func finishArmedBurst(sessionID: UUID, message: String) {
-        guard armedCaptureSessionID == sessionID else {
+    private func completeArmedCapture(_ result: Result<URL, Error>, burstID: UUID, index: Int) {
+        guard var burst = armedBurst, burst.id == burstID else {
+            DiagnosticLog.write("armed burst completion ignored reason=stale-session")
             return
         }
-        armedCaptureTimer?.cancel()
-        armedCaptureTimer = nil
-        armedCaptureRequest = nil
-        armedCaptureSessionID = nil
-        armedCaptureRemaining = 0
-        armedCaptureTotal = 0
-        armedCaptureInFlight = false
-        armedCaptureActive = false
+        burst.inFlight = false
+        armedBurst = burst
+
+        let saved = apply(result, fromArmedBurst: true)
+        armedCaptureMessage = saved
+            ? L10n.format("Armado: guardada %d/%d", index, burst.total)
+            : L10n.format("Armado: error %d/%d", index, burst.total)
+        DiagnosticLog.write("armed burst capture finished index=\(index) saved=\(saved)")
+
+        // Sin permiso, el resto de capturas fallarían igual: se aborta la
+        // ráfaga en lugar de repetir el error y el pitido.
+        if case .failure(CaptureError.screenRecordingDenied) = result {
+            finishArmedBurst(message: CaptureError.screenRecordingDenied.localizedDescription)
+        } else if burst.remaining <= 0 {
+            finishArmedBurst(message: L10n.t("Modo armado finalizado"))
+        }
+    }
+
+    private func finishArmedBurst(message: String) {
+        armedBurst?.timer.cancel()
+        armedBurst = nil
         armedCaptureMessage = message
-        if lastMessage.hasPrefix(L10n.t("Armado:")) {
-            lastMessage = message
+        if lastMessageFromArmedBurst {
+            setMessage(message, fromArmedBurst: false)
         }
-        endArmedCaptureActivity()
+        armedActivity.end()
     }
 
-    private func beginArmedCaptureActivity() {
-        guard armedCaptureActivity == nil else {
-            return
-        }
-        armedCaptureActivity = ProcessInfo.processInfo.beginActivity(
-            options: [.userInitiatedAllowingIdleSystemSleep, .latencyCritical],
-            reason: "Screening Automation armed capture"
-        )
-        DiagnosticLog.write("armed capture activity started")
+    // MARK: Estado compartido
+
+    private func beginCapture() -> UUID {
+        let operationID = UUID()
+        activeCaptureOperationID = operationID
+        isCapturing = true
+        return operationID
     }
 
-    private func endArmedCaptureActivity() {
-        guard let armedCaptureActivity else {
-            return
+    /// Cierra la captura `operationID` si sigue siendo la vigente.
+    private func endCapture(_ operationID: UUID) -> Bool {
+        guard activeCaptureOperationID == operationID else {
+            return false
         }
-        ProcessInfo.processInfo.endActivity(armedCaptureActivity)
-        self.armedCaptureActivity = nil
-        DiagnosticLog.write("armed capture activity ended")
+        activeCaptureOperationID = nil
+        isCapturing = false
+        return true
     }
 
-    /// Captura la zona y la guarda en disco. Se ejecuta fuera del hilo principal.
+    /// Refleja el resultado de una captura en el estado publicado.
     ///
-    /// Usa ScreenCaptureKit (macOS 15.2+) y recurre a `/usr/sbin/screencapture`
-    /// solo ante fallos transitorios o en sistemas anteriores. Un permiso
-    /// denegado se devuelve como `CaptureError.screenRecordingDenied`.
-    nonisolated static func performCapture(request: CaptureRequest) -> Result<URL, Error> {
-        do {
-            let fileURL = try CaptureFileNaming.makeURL(
-                in: request.outputFolderPath,
-                fileExtension: request.imageFormat.fileExtension
-            )
-
-            switch captureWithScreenCaptureKit(request: request, fileURL: fileURL) {
-            case .saved:
-                hardenCaptureFile(at: fileURL)
-                return .success(fileURL)
-            case .permissionDenied:
-                return .failure(CaptureError.screenRecordingDenied)
-            case .unavailable:
-                break
+    /// - Returns: `true` si se guardó la captura.
+    @discardableResult
+    private func apply(_ result: Result<URL, Error>, fromArmedBurst: Bool) -> Bool {
+        switch result {
+        case .success(let url):
+            lastCaptureURL = url
+            lastCaptureSucceeded = true
+            setMessage(L10n.format("Guardado: %@", url.lastPathComponent), fromArmedBurst: fromArmedBurst)
+            DiagnosticLog.write("capture saved file=\(url.lastPathComponent)")
+            return true
+        case .failure(let error):
+            lastCaptureSucceeded = false
+            setMessage(error.localizedDescription, fromArmedBurst: fromArmedBurst)
+            DiagnosticLog.write("capture failed error=\(error.localizedDescription)")
+            NSSound.beep()
+            if case CaptureError.screenRecordingDenied = error {
+                handleScreenRecordingDenied()
             }
-
-            // Sin permiso, `screencapture` guarda solo el fondo de escritorio y
-            // parece una captura válida. Antes de recurrir a él se exige que el
-            // permiso esté confirmado (en macOS < 15.2 es el único camino).
-            guard ScreenCapturePermission.allowed || ScreenCapturePermission.checkAccess() == .granted else {
-                DiagnosticLog.write("screencapture fallback skipped reason=permission-not-confirmed")
-                return .failure(CaptureError.screenRecordingDenied)
-            }
-
-            DiagnosticLog.write("screencapture fallback started")
-            if let error = runScreenCapture(request: request, fileURL: fileURL) {
-                try? FileManager.default.removeItem(at: fileURL)
-                return .failure(error)
-            }
-            hardenCaptureFile(at: fileURL)
-            return .success(fileURL)
-        } catch {
-            return .failure(error)
-        }
-    }
-
-    nonisolated private static func runScreenCapture(request: CaptureRequest, fileURL: URL) -> CaptureError? {
-        let process = Process()
-        let errorPipe = Pipe()
-        let outputPipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-        process.arguments = [
-            "-x",
-            "-t",
-            request.imageFormat.screencaptureToken,
-            "-R",
-            request.region.screencaptureArgument,
-            fileURL.path
-        ]
-        process.standardError = errorPipe
-        process.standardOutput = outputPipe
-        let processFinished = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in
-            processFinished.signal()
-        }
-        do {
-            try process.run()
-        } catch {
-            return .processFailed(1, error.localizedDescription)
-        }
-        guard processFinished.wait(timeout: .now() + 12) == .success else {
-            process.terminate()
-            if processFinished.wait(timeout: .now() + 1) == .timedOut, process.isRunning {
-                kill(process.processIdentifier, SIGKILL)
-                _ = processFinished.wait(timeout: .now() + 1)
-            }
-            try? FileManager.default.removeItem(at: fileURL)
-            DiagnosticLog.write("screencapture timed out")
-            return .processTimedOut
-        }
-
-        guard process.terminationStatus == 0 else {
-            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-            let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-            let details = [
-                String(data: errorData, encoding: .utf8),
-                String(data: outputData, encoding: .utf8)
-            ]
-                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-                .joined(separator: " ")
-                .replacingOccurrences(of: request.outputFolderPath, with: "<output>")
-            DiagnosticLog.write("screencapture failed status=\(process.terminationStatus) details=\(details)")
-            return .processFailed(process.terminationStatus, details)
-        }
-
-        guard capturedFileIsValid(at: fileURL) else {
-            try? FileManager.default.removeItem(at: fileURL)
-            DiagnosticLog.write("screencapture produced invalid or blank image")
-            return .invalidImage
-        }
-        return nil
-    }
-
-    nonisolated private static func capturedFileIsValid(at fileURL: URL) -> Bool {
-        guard let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil),
-              CGImageSourceGetCount(source) > 0,
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
-              image.width > 0,
-              image.height > 0 else {
             return false
         }
-        return !imageLooksLikeMissingPermission(image)
     }
 
-    /// Una imagen totalmente negra o transparente es el síntoma típico de
-    /// capturar sin permiso, pero también puede ser contenido legítimo (un
-    /// terminal, un vídeo oscuro). Solo se descarta si el sistema no confirma
-    /// el permiso de Grabación de pantalla.
-    nonisolated private static func imageLooksLikeMissingPermission(_ image: CGImage) -> Bool {
-        !ScreenCapturePermission.allowed && CaptureImageInspector.isLikelyBlank(image)
-    }
-
-    /// Deja el archivo legible solo por el usuario (0600). Si falla, se
-    /// registra pero no se interrumpe: la captura ya está guardada.
-    nonisolated static func hardenCaptureFile(at fileURL: URL) {
-        do {
-            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
-        } catch {
-            DiagnosticLog.write("capture file harden failed file=\(fileURL.lastPathComponent) error=\(error.localizedDescription)")
+    private func handleScreenRecordingDenied() {
+        onScreenRecordingDenied?()
+        // Solo una vez por ejecución, para no insistir.
+        if !didAutoRequestScreenPermission {
+            didAutoRequestScreenPermission = true
+            ScreenCapturePermission.requestOrOpenSettings()
         }
     }
 
-    /// Resultado de intentar la captura con ScreenCaptureKit.
-    private enum ScreenCaptureKitOutcome {
-        case saved
-        case permissionDenied
-        /// Error transitorio, timeout, imagen vacía o sistema sin soporte:
-        /// procede intentar con `screencapture`.
-        case unavailable
+    private func setMessage(_ message: String, fromArmedBurst: Bool) {
+        lastMessage = message
+        lastMessageFromArmedBurst = fromArmedBurst
     }
 
-    nonisolated private static func captureWithScreenCaptureKit(
-        request: CaptureRequest,
-        fileURL: URL
-    ) -> ScreenCaptureKitOutcome {
-        guard #available(macOS 15.2, *) else {
-            return .unavailable
-        }
-        let rect = CGRect(
-            x: request.region.x,
-            y: request.region.y,
-            width: request.region.width,
-            height: request.region.height
-        )
-        let semaphore = DispatchSemaphore(value: 0)
-        let result = LockedBox<(image: CGImage?, error: Error?)>((nil, nil))
-
-        SCScreenshotManager.captureImage(in: rect) { image, error in
-            result.set((image, error))
-            semaphore.signal()
-        }
-
-        guard semaphore.wait(timeout: .now() + 8) == .success else {
-            DiagnosticLog.write("screen capture kit timed out")
-            return .unavailable
-        }
-        let (image, error) = result.get()
-        if let error {
-            DiagnosticLog.write("screen capture kit error=\(error.localizedDescription)")
-            if ScreenCapturePermission.isPermissionDenied(error) {
-                return .permissionDenied
-            }
-        }
-        guard let image else {
-            return .unavailable
-        }
-        guard !imageLooksLikeMissingPermission(image) else {
-            try? FileManager.default.removeItem(at: fileURL)
-            DiagnosticLog.write("screen capture kit produced blank image without permission")
-            return .unavailable
-        }
-        return write(image: image, format: request.imageFormat, to: fileURL) ? .saved : .unavailable
+    private func reportMissingRegion(context: String) {
+        lastCaptureSucceeded = false
+        setMessage(CaptureError.missingRegion.localizedDescription, fromArmedBurst: false)
+        DiagnosticLog.write("\(context) skipped reason=missing-region")
+        NSSound.beep()
     }
 
-    nonisolated private static func write(image: CGImage, format: ImageFormat, to fileURL: URL) -> Bool {
-        let type: CFString
-        switch format {
-        case .png:
-            type = UTType.png.identifier as CFString
-        case .jpg:
-            type = UTType.jpeg.identifier as CFString
-        case .pdf:
-            type = UTType.pdf.identifier as CFString
-        case .tiff:
-            type = UTType.tiff.identifier as CFString
-        }
-        guard let destination = CGImageDestinationCreateWithURL(fileURL as CFURL, type, 1, nil) else {
-            return false
-        }
-        CGImageDestinationAddImage(destination, image, nil)
-        return CGImageDestinationFinalize(destination)
-    }
-
+    /// Muestra en Finder la última captura o, si no hay, la carpeta de salida.
     func revealLastCapture() {
         guard let lastCaptureURL else {
             settings.revealOutputFolder()
             return
         }
         NSWorkspace.shared.activateFileViewerSelecting([lastCaptureURL])
-    }
-}
-
-enum CaptureImageInspector {
-    static func isLikelyBlank(_ image: CGImage) -> Bool {
-        let width = 32
-        let height = 32
-        let bytesPerPixel = 4
-        let bytesPerRow = width * bytesPerPixel
-        var pixels = [UInt8](repeating: 0, count: width * height * bytesPerPixel)
-        guard let context = CGContext(
-            data: &pixels,
-            width: width,
-            height: height,
-            bitsPerComponent: 8,
-            bytesPerRow: bytesPerRow,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else {
-            return false
-        }
-
-        context.interpolationQuality = .none
-        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-
-        var visiblePixels = 0
-        var nonBlackPixels = 0
-        for index in stride(from: 0, to: pixels.count, by: bytesPerPixel) {
-            let red = pixels[index]
-            let green = pixels[index + 1]
-            let blue = pixels[index + 2]
-            let alpha = pixels[index + 3]
-            guard alpha > 2 else {
-                continue
-            }
-            visiblePixels += 1
-            if Int(red) + Int(green) + Int(blue) > 6 {
-                nonBlackPixels += 1
-            }
-        }
-
-        return visiblePixels == 0 || nonBlackPixels == 0
     }
 }
