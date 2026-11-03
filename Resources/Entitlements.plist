@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Entitlements para firmas con Team ID (Developer ID o Apple Development).
+  Sin excepciones: el hardened runtime mantiene la validación de bibliotecas.
+  ReleaseEntitlements.plist añade disable-library-validation y solo se usa con
+  el certificado autofirmado o con firma ad hoc. Ver scripts/build_app.sh.
+-->
+<plist version="1.0">
+<dict/>
+</plist>

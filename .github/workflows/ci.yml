@@ -12,6 +12,11 @@ permissions:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+# bash explícito activa `-eo pipefail` en todos los pasos.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   build:
     name: Build and validate
@@ -30,13 +35,16 @@ jobs:
         run: swift build -c release -Xswiftc -warnings-as-errors
 
       - name: Build app bundle
-        run: ./scripts/build_app.sh
+        run: |
+          # Sin identidad de release en el runner se genera la variante Dev.
+          APP_PATH="$(./scripts/build_app.sh)"
+          echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
 
       - name: Verify app signature
-        run: codesign --verify --deep --strict ".build/release/Screening Automation.app"
+        run: codesign --verify --deep --strict "$APP_PATH"
 
       - name: Validate metadata
         run: |
-          plutil -lint Resources/Info.plist
+          plutil -lint Resources/Info.plist Resources/*.plist Resources/*.lproj/Localizable.strings
           ruby -c packaging/homebrew/screening-automation.rb
           swift package dump-package >/dev/null
