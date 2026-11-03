@@ -481,6 +481,9 @@ final class VideoRecorder: ObservableObject {
     /// Interrupción llegada mientras la captura aún arrancaba; se atiende en
     /// cuanto pasa a `recording`.
     private var pendingInterruption: (id: UUID, message: String)?
+    /// Mensaje mostrado al vencer el tope de cierre. Un resultado tardío solo
+    /// lo corrige si sigue siendo el visible, para no tapar un aviso posterior.
+    private var timeoutMessage: String?
     private let maxDuration: TimeInterval
     private var timer: Timer?
     private var state: State = .idle {
@@ -588,7 +591,7 @@ final class VideoRecorder: ObservableObject {
                 }
             }
         } catch {
-            pendingInterruption = nil
+            clearPendingInterruption(for: id)
             guard isCurrent(id) else {
                 return
             }
@@ -598,7 +601,7 @@ final class VideoRecorder: ObservableObject {
         }
 
         guard isCurrent(id) else {
-            pendingInterruption = nil
+            clearPendingInterruption(for: id)
             await handle.discard()
             DiagnosticLog.write("video capture discarded after cancelled start")
             return
@@ -642,6 +645,9 @@ final class VideoRecorder: ObservableObject {
             CaptureFiles.harden(at: active.handle.fileURL)
             DiagnosticLog.write("video recording finalize failed file=\(fileName) error=\(error.localizedDescription)")
             fail(L10n.format("La grabacion puede estar incompleta (%@): %@", fileName, reason ?? error.localizedDescription))
+            if error == .writerFailed("timeout") {
+                timeoutMessage = lastMessage
+            }
             return false
         }
     }
@@ -671,14 +677,20 @@ final class VideoRecorder: ObservableObject {
     /// Corrige el resultado mostrado cuando el cierre real llega después del
     /// tope: borra un archivo inútil o confirma que se guardó bien.
     private func applyLateFinalization(_ result: Result<Void, VideoWriterError>, fileURL: URL) {
+        let stillShowingTimeout = timeoutMessage != nil && lastMessage == timeoutMessage
+        timeoutMessage = nil
         switch result {
         case .success:
             CaptureFiles.harden(at: fileURL)
-            if case .idle = state {
+            if stillShowingTimeout {
                 lastMessage = L10n.format("Guardado: %@", fileURL.lastPathComponent)
             }
         case .failure(let error) where error.leavesNoFile:
             CaptureFiles.remove(at: fileURL)
+            DiagnosticLog.write("video late finalize removed file=\(fileURL.lastPathComponent) error=\(error.localizedDescription)")
+            if stillShowingTimeout {
+                lastMessage = error.localizedDescription
+            }
         case .failure:
             break
         }
@@ -696,6 +708,14 @@ final class VideoRecorder: ObservableObject {
             return
         }
         await stop(reason: L10n.format("Grabacion interrumpida: %@", message))
+    }
+
+    /// Olvida la interrupción pendiente solo si es de esta grabación: un
+    /// arranque antiguo que termina tarde no debe borrar la de la actual.
+    private func clearPendingInterruption(for id: UUID) {
+        if pendingInterruption?.id == id {
+            pendingInterruption = nil
+        }
     }
 
     private func isCurrent(_ id: UUID) -> Bool {

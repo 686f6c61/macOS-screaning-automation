@@ -269,8 +269,13 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           ZIP="releases/Screening-Automation-${VERSION}-arm64.zip"
           NOTES="releases/Screening-Automation-${VERSION}-arm64.md"
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+          # Solo se sigue si la release no existe; un error de red o de
+          # autenticación no se puede confundir con «no existe».
+          if RELEASE_CHECK="$(gh release view "$GITHUB_REF_NAME" 2>&1)"; then
             echo "::error::Release $GITHUB_REF_NAME already exists"
+            exit 1
+          elif ! grep -qi "release not found" <<<"$RELEASE_CHECK"; then
+            echo "::error::Could not check release $GITHUB_REF_NAME: $RELEASE_CHECK"
             exit 1
           fi
           # Se marca antes de crear: `gh release create` crea el borrador y
