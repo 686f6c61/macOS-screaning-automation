@@ -1,5 +1,41 @@
 # Changelog
 
+## Sin publicar
+
+### Correcciones
+
+- La grabación de vídeo vuelve a funcionar. Desde la `0.4.0`, un cambio de
+  concurrencia impedía arrancar el escritor de vídeo y todas las grabaciones se
+  descartaban con «La grabación no se pudo guardar».
+- Detener una grabación mientras arranca, retirar el permiso o pulsar «Dejar de
+  compartir» ya no deja un stream huérfano ni la interfaz en «Grabando». Lo
+  grabado se guarda y se explica el motivo.
+- Salir de la app con una grabación en curso espera a cerrar el MP4.
+- Las capturas salían desplazadas con un monitor colocado encima de la pantalla
+  principal; la conversión de coordenadas usa ahora la pantalla principal.
+- La detección de esquina funciona con pantallas desalineadas.
+- La app ya no consulta ScreenCaptureKit en bucle cuando falta el permiso de
+  Grabación de pantalla, lo que provocaba avisos del sistema continuos.
+- Sin permiso confirmado ya no se recurre a `screencapture`, que guardaba solo
+  el fondo de escritorio como si fuera una captura válida.
+- Las regiones legítimamente negras (un terminal, un vídeo oscuro) ya no se
+  rechazan cuando el permiso está concedido.
+- Esc cancela la selección de zona.
+- Si los ajustes guardados no se pueden leer, se conserva una copia y se avisa.
+- La anonimización del log cubre rutas con espacios y saltos de línea.
+
+### Desarrollo y publicación
+
+- `build_app.sh` genera una variante «Screening Automation Dev» (bundle ID
+  `.dev`) cuando no hay identidad de release en el llavero. Instalar una
+  compilación local ya no sobrescribe la app de release ni rompe sus permisos
+  de TCC.
+- El workflow de release verifica que el requisito designado mantiene el
+  certificado raíz conocido, valida el modo de firma y usa `pipefail`.
+- Nuevos tests del escritor de vídeo, de la máquina de estados de grabación,
+  de coordenadas multipantalla, de la detección de esquina y de cobertura de
+  las traducciones.
+
 ## 0.4.2 - 2026-10-12
 
 - Corregido el fallo de arranque de la `0.4.1`: con Hardened Runtime y una
