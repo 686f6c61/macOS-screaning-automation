@@ -1,6 +1,7 @@
 // Log de diagnóstico local de la app.
 //
-// Se escribe en ~/Library/Logs/ScreeningAutomation (carpeta 0700, archivo 0600)
+// Se escribe en ~/Library/Logs/ScreeningAutomation (o ScreeningAutomation-Dev en
+// la variante de desarrollo; carpeta 0700, archivo 0600)
 // y en el log unificado del sistema. Antes de escribir se anonimizan las rutas
 // personales: el log se puede copiar y compartir desde Ajustes al pedir ayuda.
 // Rota a un único archivo `.1` al superar 512 KB.
@@ -19,10 +20,17 @@ enum DiagnosticLog {
         NSClassFromString("XCTestCase") != nil
     }
 
+    /// Carpeta del log. La variante de desarrollo (bundle ID `.dev`) usa una
+    /// propia: comparte disco con la release pero no sus `UserDefaults`, y su
+    /// `prepare()` borraría el log de la release en el primer arranque.
     static var folderURL: URL {
-        FileManager.default
+        let isDevBuild = Bundle.main.bundleIdentifier?.hasSuffix(".dev") == true
+        return FileManager.default
             .homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Logs/ScreeningAutomation", isDirectory: true)
+            .appendingPathComponent(
+                isDevBuild ? "Library/Logs/ScreeningAutomation-Dev" : "Library/Logs/ScreeningAutomation",
+                isDirectory: true
+            )
     }
 
     static var fileURL: URL {
