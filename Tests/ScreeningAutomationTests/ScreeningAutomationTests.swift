@@ -398,6 +398,33 @@ final class VideoWriterSessionTests: XCTestCase {
         XCTAssertGreaterThan(size?.intValue ?? 0, 0)
     }
 
+    /// Con el escritor fuera de `.writing` tras haber empezado la sesión (aquí,
+    /// cancelado), `finish` no debe llamar a `finishWriting`: lanzaría una
+    /// excepción de Objective-C que tumba la app. Es el mismo camino que sigue
+    /// un escritor que falla a mitad de grabación.
+    func testFinishAfterWriterLeftWritingStateDoesNotCrash() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ScreeningAutomationTests-\(UUID().uuidString).mp4")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let session = try VideoWriterSession(url: url, pixelWidth: 64, pixelHeight: 64)
+        for index in 0..<3 {
+            let buffer = try SyntheticFrames.sampleBuffer(width: 64, height: 64, frameIndex: index)
+            session.queue.sync { session.append(buffer) }
+        }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            session.discard { continuation.resume() }
+        }
+
+        let result = await withCheckedContinuation { continuation in
+            session.finish { continuation.resume(returning: $0) }
+        }
+
+        guard case .failure(.writerFailed) = result else {
+            return XCTFail("Se esperaba writerFailed y llegó \(result)")
+        }
+    }
+
     func testFinishWithoutFramesReportsNoFrames() async throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("ScreeningAutomationTests-\(UUID().uuidString).mp4")
@@ -464,6 +491,172 @@ private enum SyntheticFrames {
         }
         return sampleBuffer
     }
+}
+
+@MainActor
+final class VideoRecorderStateTests: XCTestCase {
+    /// Detener mientras la captura aún arranca (por ejemplo, con el aviso de TCC
+    /// abierto) debe descartar la captura cuando por fin arranque.
+    func testStopWhileStartingDiscardsCaptureOnceItStarts() async throws {
+        let source = FakeVideoSource()
+        source.holdStart = true
+        let recorder = VideoRecorder(settings: try makeSettings(), source: source)
+
+        recorder.start()
+        let ready1 = await waitUntil { source.startCount == 1 }
+        XCTAssertTrue(ready1)
+        let saved = await recorder.stop()
+        source.releaseStart()
+
+        XCTAssertFalse(saved)
+        let ready2 = await waitUntil { source.handle.discarded }
+        XCTAssertTrue(ready2)
+        XCTAssertFalse(recorder.isRecording)
+        XCTAssertFalse(recorder.isBusy)
+        XCTAssertFalse(source.handle.finished)
+    }
+
+    func testInterruptionSavesWhatWasRecorded() async throws {
+        let source = FakeVideoSource()
+        let recorder = VideoRecorder(settings: try makeSettings(), source: source)
+
+        recorder.start()
+        let ready3 = await waitUntil { recorder.isRecording && source.startCount == 1 && !recorder.lastMessage.contains("...") }
+        XCTAssertTrue(ready3)
+        source.interrupt("permiso retirado")
+
+        let ready4 = await waitUntil { !recorder.isBusy }
+        XCTAssertTrue(ready4)
+        XCTAssertTrue(source.handle.finished)
+        XCTAssertTrue(recorder.lastMessage.contains("permiso retirado"))
+    }
+
+    /// Una segunda llamada a `stop()` (p. ej., al salir de la app) durante el
+    /// cierre espera a ese mismo cierre en vez de devolver al instante.
+    func testConcurrentStopWaitsForTheSameFinalization() async throws {
+        let source = FakeVideoSource()
+        source.handle.holdFinish = true
+        let recorder = VideoRecorder(settings: try makeSettings(), source: source)
+
+        recorder.start()
+        let ready5 = await waitUntil { recorder.isRecording && source.startCount == 1 && !recorder.lastMessage.contains("...") }
+        XCTAssertTrue(ready5)
+        async let first = recorder.stop()
+        let ready6 = await waitUntil { source.handle.finishCalls == 1 }
+        XCTAssertTrue(ready6)
+        async let second = recorder.stop()
+        XCTAssertTrue(recorder.isBusy)
+        source.handle.releaseFinish()
+
+        let results = await (first, second)
+        XCTAssertTrue(results.0)
+        XCTAssertTrue(results.1)
+        XCTAssertEqual(source.handle.finishCalls, 1)
+        XCTAssertFalse(recorder.isBusy)
+    }
+
+    func testFinalizeFailureKeepsFileAndReportsIt() async throws {
+        let source = FakeVideoSource()
+        source.handle.finishResult = .failure(.writerFailed("disco lleno"))
+        let recorder = VideoRecorder(settings: try makeSettings(), source: source)
+
+        recorder.start()
+        let ready7 = await waitUntil { recorder.isRecording && source.startCount == 1 && !recorder.lastMessage.contains("...") }
+        XCTAssertTrue(ready7)
+        let saved = await recorder.stop()
+
+        XCTAssertFalse(saved)
+        XCTAssertTrue(recorder.lastMessage.contains(source.handle.fileURL.lastPathComponent))
+    }
+
+    private func makeSettings() throws -> AppSettings {
+        let suiteName = "ScreeningAutomationTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            throw TestError.defaultsCreationFailed
+        }
+        addTeardownBlock { defaults.removePersistentDomain(forName: suiteName) }
+        let settings = AppSettings(defaults: defaults)
+        settings.selectedRegion = CaptureRegion(x: 0, y: 0, width: 100, height: 100, displayName: "Test", createdAt: Date())
+        settings.outputFolderPath = FileManager.default.temporaryDirectory.path
+        return settings
+    }
+}
+
+@MainActor
+private final class FakeVideoSource: VideoCaptureSource {
+    let handle = FakeVideoHandle()
+    var holdStart = false
+    private(set) var startCount = 0
+    private var startContinuation: CheckedContinuation<Void, Never>?
+    private var onInterrupted: (@Sendable (String) -> Void)?
+
+    func start(
+        request: CaptureRequest,
+        onInterrupted: @escaping @Sendable (String) -> Void
+    ) async throws -> VideoCaptureHandle {
+        startCount += 1
+        self.onInterrupted = onInterrupted
+        if holdStart {
+            await withCheckedContinuation { startContinuation = $0 }
+        }
+        return handle
+    }
+
+    func releaseStart() {
+        startContinuation?.resume()
+        startContinuation = nil
+    }
+
+    func interrupt(_ message: String) {
+        onInterrupted?(message)
+    }
+}
+
+@MainActor
+private final class FakeVideoHandle: VideoCaptureHandle {
+    let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("SA_fake.mp4")
+    var holdFinish = false
+    var finishResult: Result<Void, VideoWriterError> = .success(())
+    private(set) var finishCalls = 0
+    private(set) var finished = false
+    private(set) var discarded = false
+    private var finishContinuation: CheckedContinuation<Void, Never>?
+
+    func stopCapture() async throws {}
+
+    func finish() async -> Result<Void, VideoWriterError> {
+        finishCalls += 1
+        if holdFinish {
+            await withCheckedContinuation { finishContinuation = $0 }
+        }
+        finished = true
+        return finishResult
+    }
+
+    func discard() async {
+        discarded = true
+    }
+
+    func releaseFinish() {
+        finishContinuation?.resume()
+        finishContinuation = nil
+    }
+}
+
+/// Espera activa con tope para condiciones que dependen de tareas asíncronas.
+@MainActor
+private func waitUntil(
+    timeout: TimeInterval = 3,
+    condition: @escaping @MainActor () -> Bool
+) async -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+        if condition() {
+            return true
+        }
+        try? await Task.sleep(for: .milliseconds(20))
+    }
+    return condition()
 }
 
 final class VideoTimeFormatTests: XCTestCase {

@@ -53,7 +53,10 @@ final class CaptureManager: ObservableObject {
     @Published private(set) var armedCaptureActive = false
     @Published private(set) var armedCaptureMessage = L10n.t("Modo armado inactivo")
 
+    /// Se llama antes de cada captura (por ejemplo, para ocultar Ajustes).
     var prepareForCapture: (() -> Void)?
+    /// Se llama cuando una captura falla por falta de permiso.
+    var onScreenRecordingDenied: (() -> Void)?
 
     private let settings: AppSettings
     private let captureExecutor: CaptureExecutor
@@ -78,8 +81,12 @@ final class CaptureManager: ObservableObject {
         self.captureExecutor = captureExecutor ?? Self.performCapture
     }
 
+    /// Captura la zona configurada. Se ignora si ya hay una captura en curso.
+    ///
+    /// - Parameter source: origen del disparo, solo para el diagnóstico.
     func captureNow(source: String) {
         guard !isCapturing else {
+            DiagnosticLog.write("capture skipped source=\(source) reason=in-flight")
             return
         }
         guard let request = settings.captureRequest() else {
@@ -118,12 +125,12 @@ final class CaptureManager: ObservableObject {
                         self.lastCaptureSucceeded = false
                         self.lastMessage = error.localizedDescription
                         DiagnosticLog.write("capture failed error=\(error.localizedDescription)")
-                        if case CaptureError.screenRecordingDenied = error, !self.didAutoRequestScreenPermission {
-                            // Solo una vez por ejecución: si TCC ya tiene una
-                            // decisión, `request()` no muestra nada y abrimos Ajustes.
-                            self.didAutoRequestScreenPermission = true
-                            if !ScreenCapturePermission.request() {
-                                ScreenCapturePermission.openSettings()
+                        if case CaptureError.screenRecordingDenied = error {
+                            self.onScreenRecordingDenied?()
+                            // Solo una vez por ejecución, para no insistir.
+                            if !self.didAutoRequestScreenPermission {
+                                self.didAutoRequestScreenPermission = true
+                                ScreenCapturePermission.requestOrOpenSettings()
                             }
                         }
                         NSSound.beep()
@@ -238,6 +245,13 @@ final class CaptureManager: ObservableObject {
                     self.armedCaptureMessage = L10n.format("Armado: error %d/%d", index, self.armedCaptureTotal)
                     DiagnosticLog.write("armed burst capture failed index=\(index) error=\(error.localizedDescription)")
                     NSSound.beep()
+                    // Sin permiso, el resto de capturas fallarían igual: se
+                    // aborta la ráfaga en lugar de repetir el error y el pitido.
+                    if case CaptureError.screenRecordingDenied = error {
+                        self.onScreenRecordingDenied?()
+                        self.finishArmedBurst(sessionID: sessionID, message: error.localizedDescription)
+                        return
+                    }
                 }
 
                 if self.armedCaptureRemaining <= 0 {
@@ -303,10 +317,17 @@ final class CaptureManager: ObservableObject {
                 hardenCaptureFile(at: fileURL)
                 return .success(fileURL)
             case .permissionDenied:
-                try? FileManager.default.removeItem(at: fileURL)
                 return .failure(CaptureError.screenRecordingDenied)
             case .unavailable:
                 break
+            }
+
+            // Sin permiso, `screencapture` guarda solo el fondo de escritorio y
+            // parece una captura válida. Antes de recurrir a él se exige que el
+            // permiso esté confirmado (en macOS < 15.2 es el único camino).
+            guard ScreenCapturePermission.allowed || ScreenCapturePermission.checkAccess() == .granted else {
+                DiagnosticLog.write("screencapture fallback skipped reason=permission-not-confirmed")
+                return .failure(CaptureError.screenRecordingDenied)
             }
 
             DiagnosticLog.write("screencapture fallback started")
@@ -387,14 +408,25 @@ final class CaptureManager: ObservableObject {
               image.height > 0 else {
             return false
         }
-        return !CaptureImageInspector.isLikelyBlank(image)
+        return !imageLooksLikeMissingPermission(image)
     }
 
+    /// Una imagen totalmente negra o transparente es el síntoma típico de
+    /// capturar sin permiso, pero también puede ser contenido legítimo (un
+    /// terminal, un vídeo oscuro). Solo se descarta si el sistema no confirma
+    /// el permiso de Grabación de pantalla.
+    nonisolated private static func imageLooksLikeMissingPermission(_ image: CGImage) -> Bool {
+        !ScreenCapturePermission.allowed && CaptureImageInspector.isLikelyBlank(image)
+    }
+
+    /// Deja el archivo legible solo por el usuario (0600). Si falla, se
+    /// registra pero no se interrumpe: la captura ya está guardada.
     nonisolated static func hardenCaptureFile(at fileURL: URL) {
-        try? FileManager.default.setAttributes(
-            [.posixPermissions: 0o600],
-            ofItemAtPath: fileURL.path
-        )
+        do {
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+        } catch {
+            DiagnosticLog.write("capture file harden failed file=\(fileURL.lastPathComponent) error=\(error.localizedDescription)")
+        }
     }
 
     /// Resultado de intentar la captura con ScreenCaptureKit.
@@ -441,9 +473,9 @@ final class CaptureManager: ObservableObject {
         guard let image else {
             return .unavailable
         }
-        guard !CaptureImageInspector.isLikelyBlank(image) else {
+        guard !imageLooksLikeMissingPermission(image) else {
             try? FileManager.default.removeItem(at: fileURL)
-            DiagnosticLog.write("screen capture kit produced blank image")
+            DiagnosticLog.write("screen capture kit produced blank image without permission")
             return .unavailable
         }
         return write(image: image, format: request.imageFormat, to: fileURL) ? .saved : .unavailable

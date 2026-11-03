@@ -11,17 +11,25 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LEGACY_APP_DST="/Applications/Monitor Screening.app"
 
 APP_SRC="$("$ROOT_DIR/scripts/build_app.sh")"
-APP_DST="/Applications/$(basename "$APP_SRC")"
+APP_BUNDLE="$(basename "$APP_SRC")"
+APP_DST="/Applications/$APP_BUNDLE"
 
-# Se copia a un temporal en el mismo volumen y se sustituye después, para no
-# quedarse sin app si la copia falla a medias.
+# Se copia y verifica en un directorio temporal del mismo volumen; la app
+# anterior solo se borra cuando la nueva ya está en su sitio.
 STAGING="$(mktemp -d /Applications/.screening-automation-install.XXXXXX)"
 trap 'rm -rf "$STAGING"' EXIT
-/usr/bin/ditto "$APP_SRC" "$STAGING/$(basename "$APP_SRC")"
-/usr/bin/codesign --verify --deep --strict "$STAGING/$(basename "$APP_SRC")" >/dev/null
+STAGED_APP="$STAGING/$APP_BUNDLE"
+/usr/bin/ditto "$APP_SRC" "$STAGED_APP"
+/usr/bin/codesign --verify --deep --strict "$STAGED_APP" >/dev/null
 
-rm -rf "$APP_DST"
-mv "$STAGING/$(basename "$APP_SRC")" "$APP_DST"
+if [[ -d "$APP_DST" ]]; then
+  mv "$APP_DST" "$STAGING/previous.app"
+fi
+if ! mv "$STAGED_APP" "$APP_DST"; then
+  [[ -d "$STAGING/previous.app" ]] && mv "$STAGING/previous.app" "$APP_DST"
+  echo "error: no se pudo instalar $APP_DST; se ha restaurado la versión anterior" >&2
+  exit 1
+fi
 if [[ -d "$LEGACY_APP_DST" ]]; then
   rm -rf "$LEGACY_APP_DST"
 fi

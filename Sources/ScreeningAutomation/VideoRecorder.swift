@@ -1,13 +1,15 @@
 // Grabación de vídeo de la zona seleccionada.
 //
-// El flujo tiene tres piezas:
+// Piezas:
 // - `VideoRegionResolver` traduce la zona (coordenadas Quartz globales) a una
 //   pantalla concreta y a un rectángulo local de esa pantalla.
 // - `VideoWriterSession` encapsula `AVAssetWriter` y solo se toca desde su cola
 //   serie, que es también la cola donde ScreenCaptureKit entrega los fotogramas.
+// - `VideoCaptureSource` / `VideoCaptureHandle` abstraen ScreenCaptureKit para
+//   que la máquina de estados de `VideoRecorder` se pueda probar sin pantalla
+//   ni permisos. La implementación real es `ScreenCaptureVideoSource`.
 // - `VideoRecorder` (MainActor) orquesta el ciclo de vida con una máquina de
-//   estados explícita para que detener durante el arranque no deje un
-//   `SCStream` huérfano.
+//   estados explícita.
 
 import AppKit
 import AVFoundation
@@ -16,6 +18,8 @@ import CoreGraphics
 import CoreMedia
 import Foundation
 import ScreenCaptureKit
+
+// MARK: - Resolución de la zona
 
 /// Describe una pantalla física en coordenadas Quartz globales.
 struct VideoRegionDescriptor {
@@ -51,6 +55,8 @@ enum VideoRegionResolver {
     }
 }
 
+// MARK: - Escritura del archivo
+
 /// Fallos posibles al escribir el archivo de vídeo.
 enum VideoWriterError: Error, Equatable, LocalizedError {
     /// No se pudo crear el `AVAssetWriter` (ruta no escribible, archivo existente...).
@@ -78,9 +84,9 @@ enum VideoWriterError: Error, Equatable, LocalizedError {
 
 /// Envoltorio de `AVAssetWriter` para una grabación H.264 en MP4.
 ///
-/// Contrato de hilos: `append(_:)` y el cuerpo de `finish(completion:)` se
-/// ejecutan siempre en `queue`. Por eso la clase es `@unchecked Sendable`: todo
-/// el estado mutable se serializa en esa cola.
+/// Contrato de hilos: `append(_:)` y los cuerpos de `finish(completion:)` y
+/// `discard(completion:)` se ejecutan siempre en `queue`. Por eso la clase es
+/// `@unchecked Sendable`: todo el estado mutable se serializa en esa cola.
 final class VideoWriterSession: @unchecked Sendable {
     /// Lado máximo que aceptan los codificadores H.264 de Apple.
     static let maxEncoderDimension = 4096
@@ -89,14 +95,23 @@ final class VideoWriterSession: @unchecked Sendable {
 
     private let writer: AVAssetWriter
     private let input: AVAssetWriterInput
+    private let onFailure: (@Sendable (String) -> Void)?
     private var startedSession = false
     private var droppedFrames = 0
-    private var appendFailure: String?
+    private var failureReason: String?
 
     /// Prepara el escritor. No crea el archivo hasta recibir el primer fotograma.
     ///
+    /// - Parameter onFailure: se llama una sola vez, desde `queue`, si el
+    ///   escritor falla durante la grabación, para poder detenerla y avisar en
+    ///   vez de seguir «grabando» sin escribir nada.
     /// - Throws: `VideoWriterError.cannotCreate` o `.unsupportedSettings`.
-    init(url: URL, pixelWidth: Int, pixelHeight: Int) throws {
+    init(
+        url: URL,
+        pixelWidth: Int,
+        pixelHeight: Int,
+        onFailure: (@Sendable (String) -> Void)? = nil
+    ) throws {
         do {
             writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
         } catch {
@@ -120,6 +135,7 @@ final class VideoWriterSession: @unchecked Sendable {
             throw VideoWriterError.unsupportedSettings
         }
         writer.add(input)
+        self.onFailure = onFailure
     }
 
     /// Ajusta un tamaño en píxeles a lo que admite H.264: lados pares y el lado
@@ -169,10 +185,17 @@ final class VideoWriterSession: @unchecked Sendable {
                 DiagnosticLog.write("video writer dropped frames count=\(self.droppedFrames)")
             }
             guard self.startedSession else {
-                if self.writer.status == .writing {
-                    self.writer.cancelWriting()
-                }
-                completion(.failure(self.appendFailure.map(VideoWriterError.writerFailed) ?? .noFrames))
+                self.cancelIfWriting()
+                completion(.failure(self.failureReason.map(VideoWriterError.writerFailed) ?? .noFrames))
+                return
+            }
+            // `finishWriting` sobre un escritor `.failed` lanza una excepción de
+            // Objective-C que tumba la app.
+            guard self.writer.status == .writing else {
+                let reason = self.failureReason
+                    ?? self.writer.error?.localizedDescription
+                    ?? "status=\(self.writer.status.rawValue)"
+                completion(.failure(.writerFailed(reason)))
                 return
             }
             self.input.markAsFinished()
@@ -187,13 +210,173 @@ final class VideoWriterSession: @unchecked Sendable {
         }
     }
 
+    /// Abandona la grabación sin cerrar el archivo. Después de que la cola haya
+    /// procesado los fotogramas pendientes, llama a `completion`.
+    func discard(completion: @escaping @Sendable () -> Void) {
+        queue.async {
+            self.cancelIfWriting()
+            completion()
+        }
+    }
+
+    private func cancelIfWriting() {
+        if writer.status == .writing {
+            writer.cancelWriting()
+        }
+    }
+
     private func recordFailure(_ reason: String) {
         // Solo se registra la primera causa: las siguientes suelen ser eco de ella.
-        guard appendFailure == nil else {
+        guard failureReason == nil else {
             return
         }
-        appendFailure = reason
+        failureReason = reason
         DiagnosticLog.write("video writer failed \(reason)")
+        onFailure?(reason)
+    }
+}
+
+// MARK: - Fuente de captura
+
+/// Una captura en marcha: el stream de fotogramas y el archivo donde se escribe.
+@MainActor
+protocol VideoCaptureHandle: AnyObject {
+    /// Archivo de salida.
+    var fileURL: URL { get }
+    /// Detiene la entrega de fotogramas.
+    func stopCapture() async throws
+    /// Cierra el archivo. Debe llamarse después de `stopCapture()`.
+    func finish() async -> Result<Void, VideoWriterError>
+    /// Detiene todo y borra el archivo; para arranques cancelados.
+    func discard() async
+}
+
+/// Arranca capturas de vídeo de una zona.
+@MainActor
+protocol VideoCaptureSource {
+    /// Prepara el archivo y arranca la captura de `request`.
+    ///
+    /// - Parameter onInterrupted: se llama si la captura se detiene sola (error
+    ///   del stream o del escritor) con un mensaje para el usuario.
+    /// - Throws: un error con descripción apta para mostrar al usuario.
+    func start(
+        request: CaptureRequest,
+        onInterrupted: @escaping @Sendable (String) -> Void
+    ) async throws -> VideoCaptureHandle
+}
+
+/// Error de arranque con mensaje ya preparado para el usuario.
+struct VideoStartError: LocalizedError {
+    let message: String
+    var errorDescription: String? { message }
+}
+
+/// Implementación con ScreenCaptureKit.
+@MainActor
+struct ScreenCaptureVideoSource: VideoCaptureSource {
+    func start(
+        request: CaptureRequest,
+        onInterrupted: @escaping @Sendable (String) -> Void
+    ) async throws -> VideoCaptureHandle {
+        guard let resolved = VideoRegionResolver.resolve(
+            region: request.region,
+            descriptors: VideoRecorder.screenDescriptors()
+        ) else {
+            throw VideoStartError(message: L10n.t("La zona no esta en ninguna pantalla activa."))
+        }
+
+        let content: SCShareableContent
+        do {
+            content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        } catch {
+            DiagnosticLog.write("video shareable content error=\(error.localizedDescription)")
+            throw VideoStartError(message: ScreenCapturePermission.userFacingMessage(for: error))
+        }
+        guard let display = content.displays.first(where: { $0.displayID == resolved.displayID }) else {
+            throw VideoStartError(message: L10n.t("No se encontro la pantalla de la zona."))
+        }
+
+        let size = VideoWriterSession.encoderSize(
+            width: Int(resolved.localRect.width * resolved.scale),
+            height: Int(resolved.localRect.height * resolved.scale)
+        )
+        let url = try CaptureFileNaming.makeURL(in: request.outputFolderPath, fileExtension: "mp4")
+        let session = try VideoWriterSession(url: url, pixelWidth: size.width, pixelHeight: size.height) { reason in
+            onInterrupted(VideoWriterError.writerFailed(reason).localizedDescription)
+        }
+
+        let configuration = SCStreamConfiguration()
+        configuration.sourceRect = resolved.localRect
+        configuration.width = size.width
+        configuration.height = size.height
+        configuration.minimumFrameInterval = CMTime(value: 1, timescale: 30)
+        configuration.queueDepth = 5
+        configuration.showsCursor = true
+        configuration.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+
+        let forwarder = FrameForwarder(session: session) { error in
+            DiagnosticLog.write("video stream stopped error=\(error.localizedDescription)")
+            onInterrupted(ScreenCapturePermission.userFacingMessage(for: error))
+        }
+        let stream = SCStream(
+            filter: SCContentFilter(display: display, excludingWindows: []),
+            configuration: configuration,
+            delegate: forwarder
+        )
+        do {
+            try stream.addStreamOutput(forwarder, type: .screen, sampleHandlerQueue: session.queue)
+            try await stream.startCapture()
+        } catch {
+            DiagnosticLog.write("video recording failed to start error=\(error.localizedDescription)")
+            throw VideoStartError(message: ScreenCapturePermission.userFacingMessage(for: error))
+        }
+        DiagnosticLog.write("video recording started size=\(size.width)x\(size.height)")
+        return ScreenCaptureVideoHandle(stream: stream, forwarder: forwarder, session: session, fileURL: url)
+    }
+}
+
+/// Captura en marcha con ScreenCaptureKit.
+@MainActor
+private final class ScreenCaptureVideoHandle: VideoCaptureHandle {
+    let fileURL: URL
+    private let stream: SCStream
+    /// Solo se guarda para retenerlo: `SCStream` no garantiza retener a su
+    /// delegado ni a sus salidas.
+    private let forwarder: FrameForwarder
+    private let session: VideoWriterSession
+
+    init(stream: SCStream, forwarder: FrameForwarder, session: VideoWriterSession, fileURL: URL) {
+        self.stream = stream
+        self.forwarder = forwarder
+        self.session = session
+        self.fileURL = fileURL
+    }
+
+    func stopCapture() async throws {
+        try await stream.stopCapture()
+    }
+
+    func finish() async -> Result<Void, VideoWriterError> {
+        await withCheckedContinuation { continuation in
+            session.finish { continuation.resume(returning: $0) }
+        }
+    }
+
+    func discard() async {
+        do {
+            try await stream.stopCapture()
+        } catch {
+            DiagnosticLog.write("video discard stopCapture error=\(error.localizedDescription)")
+        }
+        let url = fileURL
+        // El borrado va en el callback: así ocurre después de los fotogramas
+        // que aún estuvieran en la cola y que podrían recrear el archivo.
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            session.discard {
+                VideoRecorder.removeFile(at: url)
+                continuation.resume()
+            }
+        }
     }
 }
 
@@ -237,24 +420,30 @@ private final class FrameForwarder: NSObject, SCStreamOutput, SCStreamDelegate, 
     }
 }
 
+// MARK: - Orquestación
+
 /// Orquesta la grabación de vídeo de la zona seleccionada.
 ///
-/// Estados: `idle` → `starting` → `recording` → `stopping` → `idle`. Cada
-/// arranque lleva un identificador; si el usuario detiene mientras
-/// ScreenCaptureKit aún está arrancando, el arranque detecta que su identificador
-/// ya no es el vigente y libera el stream en vez de adoptarlo.
+/// Estados: `idle` → `starting` → `recording` → `stopping` → `idle`.
+/// - Cada arranque lleva un identificador: si el usuario detiene mientras la
+///   captura aún arranca (por ejemplo, con el aviso de TCC en pantalla), el
+///   arranque detecta que ya no es el vigente y descarta la captura.
+/// - En `stopping` se guarda la tarea de cierre, de modo que cualquier otra
+///   llamada a `stop()` (incluida la de salir de la app) espera a ese mismo
+///   cierre en lugar de cortar la escritura del archivo.
 @MainActor
 final class VideoRecorder: ObservableObject {
+    /// `true` mientras se prepara o se graba; controla el botón del menú.
     @Published private(set) var isRecording = false
     @Published private(set) var lastMessage = ""
     @Published private(set) var elapsedDescription = "0:00"
 
+    /// Tiempo máximo para cerrar el MP4 antes de darlo por fallido.
+    static let finalizeTimeout: TimeInterval = 15
+
     private struct ActiveRecording {
         let id: UUID
-        let stream: SCStream
-        let forwarder: FrameForwarder
-        let session: VideoWriterSession
-        let fileURL: URL
+        let handle: VideoCaptureHandle
         let startedAt: Date
     }
 
@@ -262,41 +451,64 @@ final class VideoRecorder: ObservableObject {
         case idle
         case starting(UUID)
         case recording(ActiveRecording)
-        case stopping
+        case stopping(Task<Bool, Never>)
     }
 
     private let settings: AppSettings
+    private let source: VideoCaptureSource
     private let maxDuration: TimeInterval
+    private var timer: Timer?
     private var state: State = .idle {
         didSet {
             switch state {
             case .starting, .recording:
                 isRecording = true
-            case .idle, .stopping:
+            case .idle:
+                isRecording = false
+                elapsedDescription = "0:00"
+            case .stopping:
                 isRecording = false
             }
         }
     }
-    private var timer: Timer?
 
-    /// - Parameter maxDuration: duración máxima en segundos; al alcanzarla la
-    ///   grabación se detiene y se guarda sola.
-    init(settings: AppSettings, maxDuration: TimeInterval = 600) {
+    /// `true` mientras hay algo que no se debe interrumpir: arranque,
+    /// grabación o cierre del archivo.
+    var isBusy: Bool {
+        if case .idle = state {
+            return false
+        }
+        return true
+    }
+
+    /// - Parameters:
+    ///   - source: origen de la captura; los tests inyectan uno falso.
+    ///   - maxDuration: duración máxima en segundos; al alcanzarla la grabación
+    ///     se detiene y se guarda sola.
+    init(
+        settings: AppSettings,
+        source: VideoCaptureSource = ScreenCaptureVideoSource(),
+        maxDuration: TimeInterval = 600
+    ) {
         self.settings = settings
+        self.source = source
         self.maxDuration = maxDuration
     }
 
     /// Inicia o detiene la grabación según el estado actual.
     func toggle() {
-        if isRecording {
-            Task { await stop() }
-        } else {
+        switch state {
+        case .idle:
             start()
+        case .starting, .recording:
+            Task { await stop() }
+        case .stopping:
+            // Aún se está guardando la grabación anterior.
+            NSSound.beep()
         }
     }
 
-    /// Arranca una grabación de la zona configurada. No hace nada si ya hay una
-    /// en curso o guardándose.
+    /// Arranca una grabación de la zona configurada. Solo actúa en `idle`.
     func start() {
         guard case .idle = state else {
             return
@@ -310,194 +522,135 @@ final class VideoRecorder: ObservableObject {
         let id = UUID()
         state = .starting(id)
         lastMessage = L10n.t("Preparando grabacion...")
-        elapsedDescription = "0:00"
         Task {
-            await startSession(request: request, id: id)
+            await begin(request: request, id: id)
         }
     }
 
     /// Detiene la grabación y espera a que el archivo quede cerrado.
     ///
+    /// - Parameter reason: texto que precede al mensaje final (por ejemplo, el
+    ///   motivo de una interrupción).
     /// - Returns: `true` si se guardó un archivo.
     @discardableResult
     func stop(reason: String? = nil) async -> Bool {
         switch state {
-        case .idle, .stopping:
+        case .idle:
             return false
         case .starting:
             state = .idle
             lastMessage = L10n.t("Grabacion cancelada.")
             DiagnosticLog.write("video recording cancelled while starting")
             return false
+        case .stopping(let finalization):
+            return await finalization.value
         case .recording(let active):
-            state = .stopping
             stopTimer()
             lastMessage = L10n.t("Guardando grabacion...")
             DiagnosticLog.write("video recording stop requested")
-            do {
-                try await active.stream.stopCapture()
-            } catch {
-                // Tras `didStopWithError` el stream ya está parado y esto falla;
-                // no impide cerrar el archivo.
-                DiagnosticLog.write("video stream stopCapture error=\(error.localizedDescription)")
-            }
-            return await finalize(active, reason: reason)
+            let finalization = Task { await self.finalize(active, reason: reason) }
+            state = .stopping(finalization)
+            return await finalization.value
         }
     }
 
-    /// Tiempo máximo para cerrar el MP4 antes de darlo por fallido.
-    private static let finalizeTimeout: TimeInterval = 15
+    private func begin(request: CaptureRequest, id: UUID) async {
+        let handle: VideoCaptureHandle
+        do {
+            handle = try await source.start(request: request) { [weak self] message in
+                Task { @MainActor in
+                    await self?.handleInterruption(id: id, message: message)
+                }
+            }
+        } catch {
+            guard isCurrent(id) else {
+                return
+            }
+            state = .idle
+            fail(error.localizedDescription)
+            return
+        }
+
+        guard isCurrent(id) else {
+            await handle.discard()
+            DiagnosticLog.write("video capture discarded after cancelled start")
+            return
+        }
+        state = .recording(ActiveRecording(id: id, handle: handle, startedAt: Date()))
+        lastMessage = L10n.t("Grabando video de la zona")
+        startTimer()
+    }
 
     private func finalize(_ active: ActiveRecording, reason: String?) async -> Bool {
-        let result = await withCheckedContinuation { continuation in
-            // Gana quien llegue antes: el cierre real o el tope de tiempo.
+        do {
+            try await active.handle.stopCapture()
+        } catch {
+            // Tras una interrupción el stream ya está parado y esto falla; no
+            // impide cerrar el archivo.
+            DiagnosticLog.write("video stopCapture error=\(error.localizedDescription)")
+        }
+        let result = await finishWithTimeout(active.handle)
+        state = .idle
+
+        let fileName = active.handle.fileURL.lastPathComponent
+        switch result {
+        case .success:
+            CaptureManager.hardenCaptureFile(at: active.handle.fileURL)
+            let saved = L10n.format("Guardado: %@", fileName)
+            lastMessage = reason.map { "\($0) \(saved)" } ?? saved
+            DiagnosticLog.write("video recording saved file=\(fileName)")
+            return true
+        case .failure(.noFrames):
+            Self.removeFile(at: active.handle.fileURL)
+            DiagnosticLog.write("video recording discarded reason=no-frames")
+            fail(reason ?? VideoWriterError.noFrames.localizedDescription)
+            return false
+        case .failure(let error):
+            // El MP4 va fragmentado: aunque el cierre falle, lo grabado suele
+            // ser recuperable, así que se conserva en lugar de borrarlo.
+            CaptureManager.hardenCaptureFile(at: active.handle.fileURL)
+            DiagnosticLog.write("video recording finalize failed file=\(fileName) error=\(error.localizedDescription)")
+            fail(L10n.format("La grabacion puede estar incompleta (%@): %@", fileName, reason ?? error.localizedDescription))
+            return false
+        }
+    }
+
+    /// Gana quien llegue antes: el cierre real o el tope de tiempo.
+    private func finishWithTimeout(_ handle: VideoCaptureHandle) async -> Result<Void, VideoWriterError> {
+        await withCheckedContinuation { continuation in
             let resumed = LockedBox(false)
             let resumeOnce: @Sendable (Result<Void, VideoWriterError>) -> Void = { result in
                 if !resumed.exchange(true) {
                     continuation.resume(returning: result)
                 }
             }
-            active.session.finish(completion: resumeOnce)
+            Task { @MainActor in
+                resumeOnce(await handle.finish())
+            }
             DispatchQueue.global().asyncAfter(deadline: .now() + Self.finalizeTimeout) {
                 resumeOnce(.failure(.writerFailed("timeout")))
             }
         }
-        state = .idle
-        elapsedDescription = "0:00"
-        switch result {
-        case .success:
-            CaptureManager.hardenCaptureFile(at: active.fileURL)
-            let saved = L10n.format("Guardado: %@", active.fileURL.lastPathComponent)
-            lastMessage = reason.map { "\($0) \(saved)" } ?? saved
-            DiagnosticLog.write("video recording saved file=\(active.fileURL.lastPathComponent)")
-            return true
-        case .failure(let error):
-            try? FileManager.default.removeItem(at: active.fileURL)
-            DiagnosticLog.write("video recording failed to finalize error=\(error.localizedDescription)")
-            fail(error.localizedDescription)
-            return false
-        }
     }
 
-    private func startSession(request: CaptureRequest, id: UUID) async {
-        guard let resolved = VideoRegionResolver.resolve(
-            region: request.region,
-            descriptors: Self.screenDescriptors()
-        ) else {
-            abortStart(id: id, message: L10n.t("La zona no esta en ninguna pantalla activa."))
-            return
-        }
-
-        let content: SCShareableContent
-        do {
-            content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-        } catch {
-            DiagnosticLog.write("video shareable content error=\(error.localizedDescription)")
-            abortStart(id: id, message: ScreenCapturePermission.userFacingMessage(for: error))
-            return
-        }
-        guard isCurrent(id) else {
-            return
-        }
-        guard let display = content.displays.first(where: { $0.displayID == resolved.displayID }) else {
-            abortStart(id: id, message: L10n.t("No se encontro la pantalla de la zona."))
-            return
-        }
-
-        let size = VideoWriterSession.encoderSize(
-            width: Int(resolved.localRect.width * resolved.scale),
-            height: Int(resolved.localRect.height * resolved.scale)
-        )
-        let url: URL
-        let session: VideoWriterSession
-        do {
-            url = try CaptureFileNaming.makeURL(in: request.outputFolderPath, fileExtension: "mp4")
-            session = try VideoWriterSession(url: url, pixelWidth: size.width, pixelHeight: size.height)
-        } catch {
-            abortStart(id: id, message: error.localizedDescription)
-            return
-        }
-
-        let configuration = SCStreamConfiguration()
-        configuration.sourceRect = resolved.localRect
-        configuration.width = size.width
-        configuration.height = size.height
-        configuration.minimumFrameInterval = CMTime(value: 1, timescale: 30)
-        configuration.queueDepth = 5
-        configuration.showsCursor = true
-        configuration.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
-
-        let filter = SCContentFilter(display: display, excludingWindows: [])
-        let forwarder = FrameForwarder(session: session) { [weak self] error in
-            Task { @MainActor in
-                await self?.handleStreamStopped(id: id, error: error)
-            }
-        }
-        let stream = SCStream(filter: filter, configuration: configuration, delegate: forwarder)
-        do {
-            try stream.addStreamOutput(forwarder, type: .screen, sampleHandlerQueue: session.queue)
-            try await stream.startCapture()
-        } catch {
-            DiagnosticLog.write("video recording failed to start error=\(error.localizedDescription)")
-            abortStart(id: id, message: ScreenCapturePermission.userFacingMessage(for: error))
-            return
-        }
-
-        // El usuario pudo detener mientras `startCapture` estaba pendiente (por
-        // ejemplo, con el aviso de TCC en pantalla). En ese caso no adoptamos el
-        // stream: lo paramos y descartamos el archivo.
-        guard isCurrent(id) else {
-            try? await stream.stopCapture()
-            session.finish { _ in }
-            try? FileManager.default.removeItem(at: url)
-            DiagnosticLog.write("video stream discarded after cancelled start")
-            return
-        }
-
-        state = .recording(ActiveRecording(
-            id: id,
-            stream: stream,
-            forwarder: forwarder,
-            session: session,
-            fileURL: url,
-            startedAt: Date()
-        ))
-        lastMessage = L10n.t("Grabando video de la zona")
-        startTimer()
-        DiagnosticLog.write("video recording started size=\(size.width)x\(size.height)")
-    }
-
-    /// El sistema detuvo el stream (permiso revocado, «Dejar de compartir» en
-    /// el indicador de privacidad, pantalla desconectada...). Se guarda lo
-    /// grabado hasta ese momento.
-    private func handleStreamStopped(id: UUID, error: Error) async {
-        DiagnosticLog.write("video stream stopped error=\(error.localizedDescription)")
+    /// La captura se detuvo sola (permiso revocado, «Dejar de compartir» en el
+    /// indicador de privacidad, pantalla desconectada, escritor fallido...).
+    /// Se guarda lo grabado hasta ese momento.
+    private func handleInterruption(id: UUID, message: String) async {
         guard case .recording(let active) = state, active.id == id else {
             return
         }
-        state = .stopping
-        stopTimer()
-        let reason = L10n.format("Grabacion interrumpida: %@", ScreenCapturePermission.userFacingMessage(for: error))
-        _ = await finalize(active, reason: reason)
+        await stop(reason: L10n.format("Grabacion interrumpida: %@", message))
     }
 
     private func isCurrent(_ id: UUID) -> Bool {
-        if case .starting(let current) = state, current == id {
-            return true
+        guard case .starting(id) = state else {
+            return false
         }
-        return false
-    }
-
-    private func abortStart(id: UUID, message: String) {
-        guard isCurrent(id) else {
-            return
-        }
-        state = .idle
-        fail(message)
+        return true
     }
 
     private func fail(_ message: String) {
-        elapsedDescription = "0:00"
         lastMessage = message
         NSSound.beep()
     }
@@ -530,19 +683,28 @@ final class VideoRecorder: ObservableObject {
         }
     }
 
+    /// Borra un archivo y registra el error si no se puede (salvo que no exista).
+    nonisolated static func removeFile(at url: URL) {
+        do {
+            try FileManager.default.removeItem(at: url)
+        } catch let error as CocoaError where error.code == .fileNoSuchFile {
+            return
+        } catch {
+            DiagnosticLog.write("video file remove failed file=\(url.lastPathComponent) error=\(error.localizedDescription)")
+        }
+    }
+
     /// Pantallas activas con su `CGDirectDisplayID`, límites Quartz y escala.
-    nonisolated static func screenDescriptors() -> [VideoRegionDescriptor] {
-        MainActor.assumeIsolated {
-            NSScreen.screens.compactMap { screen in
-                guard let displayID = ScreenGeometry.displayID(of: screen) else {
-                    return nil
-                }
-                return VideoRegionDescriptor(
-                    displayID: displayID,
-                    quartzBounds: CGDisplayBounds(displayID),
-                    scale: screen.backingScaleFactor
-                )
+    static func screenDescriptors() -> [VideoRegionDescriptor] {
+        NSScreen.screens.compactMap { screen in
+            guard let displayID = ScreenGeometry.displayID(of: screen) else {
+                return nil
             }
+            return VideoRegionDescriptor(
+                displayID: displayID,
+                quartzBounds: CGDisplayBounds(displayID),
+                scale: screen.backingScaleFactor
+            )
         }
     }
 
