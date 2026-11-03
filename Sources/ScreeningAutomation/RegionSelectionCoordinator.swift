@@ -1,11 +1,19 @@
+// Selección interactiva de la zona de captura.
+//
+// Cubre cada pantalla con una ventana transparente en nivel `.screenSaver`. El
+// usuario arrastra un rectángulo en cualquiera de ellas; Esc cancela.
+
 import AppKit
 import Foundation
 
+/// Muestra las capas de selección y devuelve la zona elegida.
 @MainActor
 final class RegionSelectionCoordinator {
     private var windows: [NSWindow] = []
     private var completion: ((CaptureRegion) -> Void)?
 
+    /// Abre las capas de selección. `completion` solo se llama si el usuario
+    /// completa una selección; al cancelar no se llama.
     func begin(completion: @escaping (CaptureRegion) -> Void) {
         cancel()
         self.completion = completion
@@ -21,7 +29,7 @@ final class RegionSelectionCoordinator {
                 self?.complete(with: region)
             }
 
-            let window = NSWindow(
+            let window = SelectionOverlayWindow(
                 contentRect: screen.frame,
                 styleMask: .borderless,
                 backing: .buffered,
@@ -42,6 +50,7 @@ final class RegionSelectionCoordinator {
         }
     }
 
+    /// Cierra las capas sin devolver ninguna zona.
     func cancel() {
         windows.forEach { $0.orderOut(nil) }
         windows.removeAll()
@@ -55,9 +64,19 @@ final class RegionSelectionCoordinator {
     }
 }
 
+/// Una ventana `.borderless` no puede ser ventana clave por defecto, así que su
+/// vista nunca recibía `keyDown` y Esc no cancelaba la selección.
+private final class SelectionOverlayWindow: NSWindow {
+    override var canBecomeKey: Bool {
+        true
+    }
+}
+
 private final class SelectionOverlayView: NSView {
     var onComplete: ((CaptureRegion) -> Void)?
     var onCancel: (() -> Void)?
+
+    private static let escapeKeyCode: UInt16 = 53
 
     private let screen: NSScreen
     private var dragStart: CGPoint?
@@ -101,7 +120,7 @@ private final class SelectionOverlayView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 53 {
+        if event.keyCode == Self.escapeKeyCode {
             onCancel?()
         } else {
             super.keyDown(with: event)

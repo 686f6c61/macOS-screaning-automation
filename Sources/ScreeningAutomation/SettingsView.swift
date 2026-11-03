@@ -21,6 +21,19 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 12) {
             header
 
+            if let warning = settings.loadWarning {
+                HStack(alignment: .top) {
+                    Label(warning, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                        .font(.caption)
+                    Spacer()
+                    Button("Entendido") {
+                        settings.dismissLoadWarning()
+                    }
+                    .controlSize(.small)
+                }
+            }
+
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     zoneSection
@@ -318,7 +331,7 @@ struct SettingsView: View {
                         .foregroundStyle(.orange)
                         .font(.caption)
                 }
-                logBox
+                DiagnosticLogBox()
                 HStack {
                     Button {
                         controller.eventMonitor.simulateClickBurst()
@@ -333,30 +346,13 @@ struct SettingsView: View {
                     Button {
                         updater.checkForUpdates()
                     } label: {
-                        Label("Updates", systemImage: "arrow.down.circle")
+                        Label("Actualizaciones", systemImage: "arrow.down.circle")
                     }
                     .disabled(!updater.canCheckForUpdates)
                 }
             }
             .font(.caption)
             .padding(6)
-        }
-    }
-
-    private var logBox: some View {
-        let lines = DiagnosticLog.recentLines(30)
-        return ScrollView {
-            Text(lines.isEmpty ? L10n.t("Sin eventos registrados.") : lines.joined(separator: "\n"))
-                .font(.system(.caption2, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(6)
-                .textSelection(.enabled)
-        }
-        .frame(maxHeight: 110)
-        .overlay {
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(Color.secondary.opacity(0.25))
         }
     }
 
@@ -459,4 +455,40 @@ enum HelpText {
     static let armedCount = L10n.t("Numero total de capturas de la serie.")
     static let inputMonitoring = L10n.t("Permiso de macOS para escuchar los clics globales con un event tap pasivo.")
     static let screenCapture = L10n.t("Permiso de macOS para capturar el contenido visible de la pantalla.")
+}
+/// Últimas líneas del log de diagnóstico.
+///
+/// Se cargan fuera del hilo principal cada pocos segundos y no en `body`: la
+/// ventana de ajustes se vuelve a renderizar con cada cambio publicado por los
+/// activadores y leer el archivo en cada pasada bloqueaba la interfaz.
+private struct DiagnosticLogBox: View {
+    private static let refreshInterval: Duration = .seconds(2)
+    @State private var lines: [String] = []
+
+    var body: some View {
+        ScrollView {
+            Text(lines.isEmpty ? L10n.t("Sin eventos registrados.") : lines.joined(separator: "\n"))
+                .font(.system(.caption2, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(6)
+                .textSelection(.enabled)
+        }
+        .frame(maxHeight: 110)
+        .overlay {
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(Color.secondary.opacity(0.25))
+        }
+        .task {
+            while !Task.isCancelled {
+                let loaded = await Task.detached(priority: .utility) {
+                    DiagnosticLog.recentLines(30)
+                }.value
+                if loaded != lines {
+                    lines = loaded
+                }
+                try? await Task.sleep(for: Self.refreshInterval)
+            }
+        }
+    }
 }

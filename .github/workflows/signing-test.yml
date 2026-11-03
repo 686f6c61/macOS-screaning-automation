@@ -6,6 +6,11 @@ on:
 permissions:
   contents: read
 
+# bash explícito activa `-eo pipefail` en todos los pasos.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   sign:
     name: Verify release identity signing
@@ -28,7 +33,7 @@ jobs:
           CERTIFICATE_PATH="$RUNNER_TEMP/release-identity.p12"
           CERT_PEM="$RUNNER_TEMP/release-identity.pem"
           printf '%s' "$RELEASE_IDENTITY_P12" | /usr/bin/base64 -D > "$CERTIFICATE_PATH"
-          openssl pkcs12 -in "$CERTIFICATE_PATH" -passin pass:"$RELEASE_IDENTITY_PASSWORD" -nokeys -out "$CERT_PEM"
+          openssl pkcs12 -in "$CERTIFICATE_PATH" -passin env:RELEASE_IDENTITY_PASSWORD -nokeys -out "$CERT_PEM"
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"

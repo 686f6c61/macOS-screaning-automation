@@ -194,10 +194,7 @@ final class EventTapMonitor: ObservableObject {
     func handle(type: CGEventType, location: CGPoint) {
         refreshPermissionStatus()
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            if let eventTap {
-                CGEvent.tapEnable(tap: eventTap, enable: true)
-            }
-            DiagnosticLog.write("event tap re-enabled type=\(type.rawValue)")
+            reenableEventTap(after: type)
             return
         }
 
@@ -211,6 +208,31 @@ final class EventTapMonitor: ObservableObject {
         default:
             break
         }
+    }
+
+    /// macOS desactiva el tap si el callback tarda o si cambia el permiso. Se
+    /// reactiva y se comprueba: si sigue desactivado (permiso revocado), se
+    /// libera y se queda solo el monitor global de AppKit hasta que el permiso
+    /// vuelva, en lugar de anunciar un backend que no recibe eventos.
+    private func reenableEventTap(after type: CGEventType) {
+        guard let eventTap else {
+            return
+        }
+        CGEvent.tapEnable(tap: eventTap, enable: true)
+        if CGEvent.tapIsEnabled(tap: eventTap) {
+            DiagnosticLog.write("event tap re-enabled type=\(type.rawValue)")
+            return
+        }
+        DiagnosticLog.write("event tap could not be re-enabled type=\(type.rawValue); falling back to AppKit global")
+        if let runLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
+        }
+        CFMachPortInvalidate(eventTap)
+        self.eventTap = nil
+        self.runLoopSource = nil
+        lastStartError = L10n.t("CGEventTap no disponible; usando AppKit global.")
+        refreshState()
+        schedulePermissionRetry()
     }
 
     func simulateClickBurst() {
@@ -399,7 +421,7 @@ final class EventTapMonitor: ObservableObject {
     private func updateCornerHoldTick() {
         guard let settings, settings.hoverGestureEnabled, !settings.triggersPaused else {
             resetCornerHold()
-            cornerHoldProgressDescription = L10n.t("Inactivo")
+            publishCornerHoldProgress(L10n.t("Inactivo"))
             return
         }
 
@@ -410,7 +432,7 @@ final class EventTapMonitor: ObservableObject {
                 DiagnosticLog.write("corner hold reset")
             }
             resetCornerHold()
-            cornerHoldProgressDescription = L10n.t("Fuera")
+            publishCornerHoldProgress(L10n.t("Fuera"))
             return
         }
 
@@ -424,7 +446,9 @@ final class EventTapMonitor: ObservableObject {
 
         let elapsed = now.timeIntervalSince(cornerHoldStartedAt ?? now)
         let target = settings.hoverGestureTimeoutSeconds
-        cornerHoldProgressDescription = "\(min(elapsed, target).formatted(.number.precision(.fractionLength(1))))/\(target.formatted(.number.precision(.fractionLength(1)))) s"
+        publishCornerHoldProgress(
+            "\(min(elapsed, target).formatted(.number.precision(.fractionLength(1))))/\(target.formatted(.number.precision(.fractionLength(1)))) s"
+        )
 
         guard !cornerHoldDidTrigger,
               elapsed >= target,
@@ -438,6 +462,14 @@ final class EventTapMonitor: ObservableObject {
         cornerHoldProgressDescription = L10n.t("Disparado")
         DiagnosticLog.write("corner hold trigger fired corner=\(settings.hoverGestureCorner.rawValue)")
         onTrigger("corner-hold")
+    }
+
+    /// El tick de esquina corre cada 0,1 s; `@Published` emite aunque el valor
+    /// no cambie, y eso redibujaba la ventana de ajustes diez veces por segundo.
+    private func publishCornerHoldProgress(_ value: String) {
+        if cornerHoldProgressDescription != value {
+            cornerHoldProgressDescription = value
+        }
     }
 
     private func currentMouseLocation() -> CGPoint {
