@@ -7,6 +7,7 @@
 "Activador" = "Trigger";
 "Activar por esquina sin clic" = "Trigger from corner without clicking";
 "Activo" = "Active";
+"Actualizaciones" = "Updates";
 "Actualizar" = "Refresh";
 "Ajustes" = "Settings";
 "Armado:" = "Armed:";
@@ -23,6 +24,7 @@
 "Buscar actualizaciones..." = "Check for Updates...";
 "Cancelar" = "Cancel";
 "Cancelar modo armado" = "Cancel armed burst";
+"Captura" = "Capture";
 "Captura de pantalla" = "Screen Recording";
 "Capturando..." = "Capturing...";
 "Capturar" = "Capture";
@@ -53,6 +55,7 @@
 "El codificador no admite el tamano de la zona." = "The encoder does not support the region size.";
 "Elige como quieres lanzar las capturas de la zona." = "Choose how you want to trigger captures of the region.";
 "Empezar" = "Get started";
+"Entendido" = "Got it";
 "Escucha" = "Listening";
 "Espera" = "Delay";
 "Espera inicial y serie de capturas con intervalo fijo." = "Initial delay and a series of captures at a fixed interval.";
@@ -76,6 +79,7 @@
 "La captura no produjo una imagen valida." = "The capture did not produce a valid image.";
 "La grabacion no se pudo guardar." = "The recording could not be saved.";
 "La grabacion no se pudo guardar: %@" = "The recording could not be saved: %@";
+"La grabacion puede estar incompleta (%@): %@" = "The recording may be incomplete (%@): %@";
 "La zona no esta en ninguna pantalla activa." = "The region is not on any active display.";
 "Listo" = "Ready";
 "macOS exige dos permisos para escuchar clics y capturar la pantalla." = "macOS requires two permissions to listen for clicks and capture the screen.";
@@ -89,6 +93,7 @@
 "Monitorizacion de entrada" = "Input Monitoring";
 "No hay una zona definida." = "No region defined.";
 "No se encontro la pantalla de la zona." = "Could not find the display for the region.";
+"No se pudieron leer los ajustes guardados; se han restaurado los valores por defecto." = "Saved settings could not be read; defaults have been restored.";
 "No se pudo crear imagen de la zona." = "Could not create an image of the region.";
 "No se pudo preparar el archivo de video." = "Could not prepare the video file.";
 "No se pudo preparar el archivo de video: %@" = "Could not prepare the video file: %@";
@@ -116,10 +121,12 @@
 "Reanudar activadores" = "Resume triggers";
 "Redefinir zona" = "Redefine region";
 "Region fija de la pantalla que se captura en cada disparo. Redefinela con Definir." = "Fixed screen region captured on every trigger. Redefine it with Define.";
+"SA" = "SA";
 "Salida" = "Output";
 "Salir" = "Quit";
 "screencapture termino con codigo %d." = "screencapture exited with code %d.";
 "screencapture termino con codigo %d: %@" = "screencapture exited with code %d: %@";
+"Screening Automation" = "Screening Automation";
 "Se dejo de compartir la pantalla desde el sistema." = "Screen sharing was stopped by the system.";
 "Segundos de espera antes de comenzar la serie de capturas." = "Seconds to wait before starting the capture series.";
 "Segundos maximos en los que deben caer los clics para contar como una rafaga." = "Maximum seconds within which clicks must fall to count as a burst.";

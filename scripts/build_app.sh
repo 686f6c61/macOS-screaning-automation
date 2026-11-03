@@ -7,6 +7,10 @@
 #   3. «Screening Automation Release», si está en el llavero local.
 #   4. Variante de desarrollo: «Apple Development» o, si no hay, firma ad hoc.
 #
+# Solo Developer ID y «Screening Automation Release» generan la app normal; con
+# cualquier otra identidad (incluida una en CODESIGN_IDENTITY) se genera la
+# variante de desarrollo.
+#
 # Por qué existe la variante de desarrollo: TCC (Grabación de pantalla,
 # Monitorización de entrada) asocia los permisos al requisito designado, es
 # decir, bundle ID + certificado. Si una compilación local con otro certificado
@@ -25,9 +29,15 @@ RELEASE_IDENTITY_NAME="Screening Automation Release"
 RELEASE_BUILD="${RELEASE_BUILD:-0}"
 SIGNING_IDENTITY="${CODESIGN_IDENTITY:-}"
 
+# Devuelve la primera identidad cuyo nombre empieza por $1, o nada. Si el
+# llavero no se puede consultar, avisa en vez de abortar en silencio por pipefail.
 find_identity() {
-  /usr/bin/security find-identity -v -p codesigning 2>/dev/null \
-    | /usr/bin/awk -F '"' -v pattern="$1" 'index($2, pattern) == 1 { print $2; exit }'
+  local identities
+  if ! identities="$(/usr/bin/security find-identity -v -p codesigning 2>&1)"; then
+    echo "warning: no se pudo consultar el llavero: $identities" >&2
+    return 0
+  fi
+  /usr/bin/awk -F '"' -v pattern="$1" 'index($2, pattern) == 1 { print $2; exit }' <<<"$identities"
 }
 
 if [[ -z "$SIGNING_IDENTITY" && "$RELEASE_BUILD" == "1" ]]; then
@@ -41,22 +51,19 @@ if [[ "$RELEASE_BUILD" == "1" && "$SIGNING_IDENTITY" != Developer\ ID\ Applicati
   exit 1
 fi
 
-# Sin identidad de release (ni Developer ID ni la autofirmada estable) se genera
-# la variante de desarrollo.
+# Variante: release solo con Developer ID o con la identidad autofirmada estable.
 VARIANT="release"
-if [[ -z "$SIGNING_IDENTITY" ]]; then
+APP_NAME="Screening Automation.app"
+if [[ "$SIGNING_IDENTITY" != Developer\ ID\ Application:* && "$SIGNING_IDENTITY" != "$RELEASE_IDENTITY_NAME" ]]; then
   VARIANT="dev"
-  SIGNING_IDENTITY="$(find_identity "Apple Development")"
+  APP_NAME="Screening Automation Dev.app"
+  if [[ -z "$SIGNING_IDENTITY" ]]; then
+    SIGNING_IDENTITY="$(find_identity "Apple Development")"
+  fi
   if [[ -z "$SIGNING_IDENTITY" ]]; then
     SIGNING_IDENTITY="-"
     echo "warning: no hay identidad de firma; se firma ad hoc. TCC tratará cada compilación como una app nueva y habrá que volver a conceder los permisos." >&2
   fi
-fi
-
-if [[ "$VARIANT" == "dev" ]]; then
-  APP_NAME="Screening Automation Dev.app"
-else
-  APP_NAME="Screening Automation.app"
 fi
 
 swift build -c release >&2

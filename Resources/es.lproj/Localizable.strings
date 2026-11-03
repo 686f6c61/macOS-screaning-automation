@@ -7,6 +7,7 @@
 "Activador" = "Activador";
 "Activar por esquina sin clic" = "Activar por esquina sin clic";
 "Activo" = "Activo";
+"Actualizaciones" = "Actualizaciones";
 "Actualizar" = "Actualizar";
 "Ajustes" = "Ajustes";
 "Armado:" = "Armado:";
@@ -23,6 +24,7 @@
 "Buscar actualizaciones..." = "Buscar actualizaciones...";
 "Cancelar" = "Cancelar";
 "Cancelar modo armado" = "Cancelar modo armado";
+"Captura" = "Captura";
 "Captura de pantalla" = "Captura de pantalla";
 "Capturando..." = "Capturando...";
 "Capturar" = "Capturar";
@@ -53,6 +55,7 @@
 "El codificador no admite el tamano de la zona." = "El codificador no admite el tamaño de la zona.";
 "Elige como quieres lanzar las capturas de la zona." = "Elige como quieres lanzar las capturas de la zona.";
 "Empezar" = "Empezar";
+"Entendido" = "Entendido";
 "Escucha" = "Escucha";
 "Espera" = "Espera";
 "Espera inicial y serie de capturas con intervalo fijo." = "Espera inicial y serie de capturas con intervalo fijo.";
@@ -76,6 +79,7 @@
 "La captura no produjo una imagen valida." = "La captura no produjo una imagen valida.";
 "La grabacion no se pudo guardar." = "La grabacion no se pudo guardar.";
 "La grabacion no se pudo guardar: %@" = "La grabación no se pudo guardar: %@";
+"La grabacion puede estar incompleta (%@): %@" = "La grabación puede estar incompleta (%@): %@";
 "La zona no esta en ninguna pantalla activa." = "La zona no esta en ninguna pantalla activa.";
 "Listo" = "Listo";
 "macOS exige dos permisos para escuchar clics y capturar la pantalla." = "macOS exige dos permisos para escuchar clics y capturar la pantalla.";
@@ -89,6 +93,7 @@
 "Monitorizacion de entrada" = "Monitorizacion de entrada";
 "No hay una zona definida." = "No hay una zona definida.";
 "No se encontro la pantalla de la zona." = "No se encontro la pantalla de la zona.";
+"No se pudieron leer los ajustes guardados; se han restaurado los valores por defecto." = "No se pudieron leer los ajustes guardados; se han restaurado los valores por defecto.";
 "No se pudo crear imagen de la zona." = "No se pudo crear imagen de la zona.";
 "No se pudo preparar el archivo de video." = "No se pudo preparar el archivo de video.";
 "No se pudo preparar el archivo de video: %@" = "No se pudo preparar el archivo de vídeo: %@";
@@ -116,10 +121,12 @@
 "Reanudar activadores" = "Reanudar activadores";
 "Redefinir zona" = "Redefinir zona";
 "Region fija de la pantalla que se captura en cada disparo. Redefinela con Definir." = "Region fija de la pantalla que se captura en cada disparo. Redefinela con Definir.";
+"SA" = "SA";
 "Salida" = "Salida";
 "Salir" = "Salir";
 "screencapture termino con codigo %d." = "screencapture termino con codigo %d.";
 "screencapture termino con codigo %d: %@" = "screencapture termino con codigo %d: %@";
+"Screening Automation" = "Screening Automation";
 "Se dejo de compartir la pantalla desde el sistema." = "Se dejó de compartir la pantalla desde el sistema.";
 "Segundos de espera antes de comenzar la serie de capturas." = "Segundos de espera antes de comenzar la serie de capturas.";
 "Segundos maximos en los que deben caer los clics para contar como una rafaga." = "Segundos maximos en los que deben caer los clics para contar como una rafaga.";

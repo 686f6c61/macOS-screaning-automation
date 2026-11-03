@@ -30,7 +30,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let videoRecorder = AppController.shared.videoRecorder
-        guard videoRecorder.isRecording else {
+        // También en `stopping`: salir mientras se cierra el MP4 lo truncaría.
+        guard videoRecorder.isBusy else {
             return .terminateNow
         }
         // Se espera a que el MP4 quede cerrado. `stop()` tiene su propio tope
@@ -73,6 +74,9 @@ final class AppController: NSObject, ObservableObject, NSWindowDelegate {
         captureManager.prepareForCapture = { [weak self] in
             self?.prepareForCapture()
         }
+        captureManager.onScreenRecordingDenied = { [weak permissions] in
+            permissions?.markScreenCaptureDenied()
+        }
     }
 
     func start() {
@@ -92,13 +96,10 @@ final class AppController: NSObject, ObservableObject, NSWindowDelegate {
         permissions.refresh()
     }
 
-    /// Pide Grabación de pantalla. Si TCC ya tiene una decisión, el sistema no
-    /// muestra nada y se abre el panel de Ajustes. Al ser una acción explícita
-    /// del usuario, también se verifica el acceso real con ScreenCaptureKit.
+    /// Pide Grabación de pantalla y, al ser una acción explícita del usuario,
+    /// verifica también el acceso real con ScreenCaptureKit.
     func requestScreenCapture() {
-        if !ScreenCapturePermission.request() {
-            ScreenCapturePermission.openSettings()
-        }
+        ScreenCapturePermission.requestOrOpenSettings()
         permissions.refresh()
         if !permissions.screenCaptureAllowed {
             permissions.verifyScreenCaptureAccess()

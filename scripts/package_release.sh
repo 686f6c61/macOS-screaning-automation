@@ -4,7 +4,12 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_DIR="$ROOT_DIR/.build/release/Screening Automation.app"
 if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
-  "$ROOT_DIR/scripts/build_app.sh" >/dev/null
+  BUILT_APP="$("$ROOT_DIR/scripts/build_app.sh")"
+  # Nunca se publica la variante de desarrollo (bundle ID .dev).
+  if [[ "$BUILT_APP" != "$APP_DIR" ]]; then
+    echo "error: build_app.sh generó $BUILT_APP; publicar requiere una identidad de release" >&2
+    exit 1
+  fi
 fi
 if [[ ! -d "$APP_DIR" ]]; then
   echo "error: app bundle not found at $APP_DIR" >&2
@@ -20,6 +25,12 @@ mkdir -p "$ARCHIVE_DIR"
 rm -f "$ARCHIVE_PATH"
 "$ROOT_DIR/scripts/extract_release_notes.sh" "$VERSION" > "$NOTES_PATH"
 if [[ ! -s "$NOTES_PATH" ]]; then
+  # En CI una versión sin entrada en el CHANGELOG es un error, no un aviso.
+  if [[ "${CI:-}" == "true" ]]; then
+    echo "error: CHANGELOG.md no tiene sección para $VERSION" >&2
+    exit 1
+  fi
+  echo "warning: CHANGELOG.md no tiene sección para $VERSION; se usan notas genéricas" >&2
   printf 'Screening Automation %s\n' "$VERSION" > "$NOTES_PATH"
 fi
 

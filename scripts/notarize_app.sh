@@ -32,9 +32,21 @@ if [[ -n "${KEYCHAIN_PATH:-}" && -f "$KEYCHAIN_PATH" ]]; then
     --keychain "$KEYCHAIN_PATH"
   SUBMIT_ARGS=(--keychain-profile "$NOTARY_PROFILE" --keychain "$KEYCHAIN_PATH")
 fi
+SUBMIT_JSON="$WORK_DIR/submit.json"
 xcrun notarytool submit "$NOTARY_ARCHIVE" "${SUBMIT_ARGS[@]}" \
   --wait \
-  --timeout 20m
+  --timeout 20m \
+  --output-format json > "$SUBMIT_JSON"
+STATUS="$(/usr/bin/plutil -extract status raw -o - "$SUBMIT_JSON" 2>/dev/null || echo unknown)"
+if [[ "$STATUS" != "Accepted" ]]; then
+  SUBMISSION_ID="$(/usr/bin/plutil -extract id raw -o - "$SUBMIT_JSON" 2>/dev/null || true)"
+  echo "error: la notarización terminó con estado '$STATUS'" >&2
+  if [[ -n "$SUBMISSION_ID" ]]; then
+    # El informe de Apple explica qué binario o firma se rechazó.
+    xcrun notarytool log "$SUBMISSION_ID" "${SUBMIT_ARGS[@]}" >&2 || true
+  fi
+  exit 1
+fi
 xcrun stapler staple "$APP_DIR"
 xcrun stapler validate "$APP_DIR"
 /usr/sbin/spctl --assess --type execute --verbose=4 "$APP_DIR"

@@ -39,6 +39,7 @@ final class PermissionStatus: ObservableObject {
     /// corrige un preflight negativo; `.unknown` (timeout, pantalla bloqueada)
     /// no se interpreta como denegación.
     private var screenCaptureAccess: ScreenCaptureAccess = .unknown
+    private var lastPreflight: Bool?
     private var accessCheckInFlight = false
     private var didRunLaunchAccessCheck = false
 
@@ -100,8 +101,13 @@ final class PermissionStatus: ObservableObject {
         let preflight = screenCapturePreflightProbe()
         if preflight {
             screenCaptureAccess = .granted
+        } else if lastPreflight == true {
+            // El preflight pasó de concedido a denegado: el usuario lo retiró
+            // en Ajustes. Se olvida la confirmación anterior.
+            screenCaptureAccess = .unknown
         }
-        let screen = preflight || screenCaptureAccess == .granted
+        lastPreflight = preflight
+        let screen = screenCaptureAccess == .granted
 
         if lastLoggedState?.input != input || lastLoggedState?.screen != screen {
             DiagnosticLog.write("permissions refresh input=\(input) screen=\(screen) preflight=\(preflight) access=\(screenCaptureAccess)")
@@ -113,6 +119,13 @@ final class PermissionStatus: ObservableObject {
         if screenCaptureAllowed != screen {
             screenCaptureAllowed = screen
         }
+    }
+
+    /// Una captura falló por falta de permiso: deja de darlo por concedido
+    /// aunque una consulta anterior lo confirmara.
+    func markScreenCaptureDenied() {
+        screenCaptureAccess = .denied
+        refresh()
     }
 
     /// Consulta ScreenCaptureKit en segundo plano. Puede mostrar el aviso del
@@ -137,19 +150,11 @@ final class PermissionStatus: ObservableObject {
 }
 
 /// Resultado de consultar ScreenCaptureKit.
-enum ScreenCaptureAccess: Sendable, CustomStringConvertible {
+enum ScreenCaptureAccess: Sendable {
     case granted
     case denied
     /// Timeout, pantalla bloqueada u otro error que no permite concluir.
     case unknown
-
-    var description: String {
-        switch self {
-        case .granted: return "granted"
-        case .denied: return "denied"
-        case .unknown: return "unknown"
-        }
-    }
 }
 
 /// Permiso de Monitorización de entrada.
@@ -186,6 +191,14 @@ enum ScreenCapturePermission {
         openPrivacyPane(anchor: "Privacy_ScreenCapture")
     }
 
+    /// Muestra el aviso del sistema o, si TCC ya tiene una decisión (en cuyo
+    /// caso `request()` no muestra nada), abre el panel de Ajustes.
+    static func requestOrOpenSettings() {
+        if !request() {
+            openSettings()
+        }
+    }
+
     /// Indica si un error de ScreenCaptureKit significa que falta el permiso.
     static func isPermissionDenied(_ error: Error) -> Bool {
         let nsError = error as NSError
@@ -196,7 +209,7 @@ enum ScreenCapturePermission {
     /// Mensaje para el usuario que explica qué hacer cuando el error es de permiso.
     static func userFacingMessage(for error: Error) -> String {
         if isPermissionDenied(error) {
-            return L10n.t("Falta el permiso de Grabacion de pantalla. Activalo en Ajustes y reinicia la app.")
+            return CaptureError.screenRecordingDenied.localizedDescription
         }
         let nsError = error as NSError
         if nsError.domain == SCStreamErrorDomain, nsError.code == SCStreamError.Code.userStopped.rawValue {
