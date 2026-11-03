@@ -13,7 +13,6 @@ enum TriggerSource: String {
     case menu
     case header
     case settings
-    case simulation
 }
 
 /// Estado observable de las capturas y del modo armado.
@@ -105,9 +104,7 @@ final class CaptureManager: ObservableObject {
                         DiagnosticLog.write("capture completion ignored reason=stale-operation")
                         return
                     }
-                    if self.apply(result, fromArmedBurst: false) {
-                        DiagnosticLog.write("capture succeeded")
-                    }
+                    self.apply(result, requestPermissionIfDenied: true)
                 }
             }
         }
@@ -202,7 +199,10 @@ final class CaptureManager: ObservableObject {
         burst.inFlight = false
         armedBurst = burst
 
-        let saved = apply(result, fromArmedBurst: true)
+        // El resultado no se marca como mensaje de la ráfaga: debe seguir
+        // visible cuando la ráfaga termine. Tampoco se abre el aviso de
+        // permiso, que robaría el foco a la app que el usuario está usando.
+        let saved = apply(result, requestPermissionIfDenied: false)
         armedCaptureMessage = saved
             ? L10n.format("Armado: guardada %d/%d", index, burst.total)
             : L10n.format("Armado: error %d/%d", index, burst.total)
@@ -248,34 +248,32 @@ final class CaptureManager: ObservableObject {
 
     /// Refleja el resultado de una captura en el estado publicado.
     ///
+    /// - Parameter requestPermissionIfDenied: si la captura falla por falta de
+    ///   permiso, muestra el aviso del sistema o abre Ajustes (una vez por
+    ///   ejecución). Solo para disparos inmediatos del usuario.
     /// - Returns: `true` si se guardó la captura.
     @discardableResult
-    private func apply(_ result: Result<URL, Error>, fromArmedBurst: Bool) -> Bool {
+    private func apply(_ result: Result<URL, Error>, requestPermissionIfDenied: Bool) -> Bool {
         switch result {
         case .success(let url):
             lastCaptureURL = url
             lastCaptureSucceeded = true
-            setMessage(L10n.format("Guardado: %@", url.lastPathComponent), fromArmedBurst: fromArmedBurst)
+            setMessage(L10n.format("Guardado: %@", url.lastPathComponent), fromArmedBurst: false)
             DiagnosticLog.write("capture saved file=\(url.lastPathComponent)")
             return true
         case .failure(let error):
             lastCaptureSucceeded = false
-            setMessage(error.localizedDescription, fromArmedBurst: fromArmedBurst)
+            setMessage(error.localizedDescription, fromArmedBurst: false)
             DiagnosticLog.write("capture failed error=\(error.localizedDescription)")
             NSSound.beep()
             if case CaptureError.screenRecordingDenied = error {
-                handleScreenRecordingDenied()
+                onScreenRecordingDenied?()
+                if requestPermissionIfDenied, !didAutoRequestScreenPermission {
+                    didAutoRequestScreenPermission = true
+                    ScreenCapturePermission.requestOrOpenSettings()
+                }
             }
             return false
-        }
-    }
-
-    private func handleScreenRecordingDenied() {
-        onScreenRecordingDenied?()
-        // Solo una vez por ejecución, para no insistir.
-        if !didAutoRequestScreenPermission {
-            didAutoRequestScreenPermission = true
-            ScreenCapturePermission.requestOrOpenSettings()
         }
     }
 

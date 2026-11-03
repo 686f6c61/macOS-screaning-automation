@@ -75,14 +75,17 @@ struct SecondsSliderRow<Leading: View>: View {
     @Binding var value: Double
     let range: ClosedRange<Double>
     let step: Double
+    /// Ayuda del valor y del deslizador.
     let helpText: String
+    /// Ayuda del control de la izquierda, si es distinta de `helpText`.
+    var leadingHelpText: String?
     var disabled = false
     @ViewBuilder let leading: () -> Leading
 
     var body: some View {
         HStack(spacing: 4) {
             leading()
-            InfoHint(text: helpText)
+            InfoHint(text: leadingHelpText ?? helpText)
             Spacer()
             Text("\(value, specifier: "%.1f") s")
                 .foregroundStyle(.secondary)
@@ -105,7 +108,7 @@ extension SecondsSliderRow where Leading == Text {
         helpText: String,
         disabled: Bool = false
     ) {
-        self.init(value: value, range: range, step: step, helpText: helpText, disabled: disabled) {
+        self.init(value: value, range: range, step: step, helpText: helpText, leadingHelpText: nil, disabled: disabled) {
             Text(title)
         }
     }

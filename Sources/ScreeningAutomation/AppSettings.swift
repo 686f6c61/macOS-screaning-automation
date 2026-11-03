@@ -228,22 +228,27 @@ final class AppSettings: ObservableObject {
 
     /// Carga los ajustes guardados o, si no hay, los valores por defecto.
     ///
-    /// Si existen datos pero no se pueden decodificar, se copian una sola vez
-    /// a `unreadableBackupKey`, se borra la clave original (para no repetir el
-    /// aviso en cada arranque) y se publica `loadWarning`.
+    /// Si existen datos pero no se pueden decodificar, se copian a
+    /// `unreadableBackupKey` (o a una variante con fecha si ya existe), se borra
+    /// la clave de origen para no repetir el aviso en cada arranque y se
+    /// publica `loadWarning`.
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        let data = defaults.data(forKey: defaultsKey) ?? defaults.data(forKey: legacyDefaultsKey)
+        let sourceKey = defaults.data(forKey: defaultsKey) != nil ? defaultsKey : legacyDefaultsKey
+        let data = defaults.data(forKey: sourceKey)
         var persisted: PersistedSettings?
         if let data {
             do {
                 persisted = try JSONDecoder().decode(PersistedSettings.self, from: data)
             } catch {
-                if defaults.object(forKey: Self.unreadableBackupKey) == nil {
-                    defaults.set(data, forKey: Self.unreadableBackupKey)
-                }
-                defaults.removeObject(forKey: defaultsKey)
-                DiagnosticLog.write("settings decode failed backupKey=\(Self.unreadableBackupKey) error=\(error.localizedDescription)")
+                // Si ya hay una copia de un incidente anterior, la nueva va a una
+                // clave con fecha: nunca se borran datos sin haberlos copiado.
+                let backupKey = defaults.object(forKey: Self.unreadableBackupKey) == nil
+                    ? Self.unreadableBackupKey
+                    : "\(Self.unreadableBackupKey).\(Int(Date().timeIntervalSince1970))"
+                defaults.set(data, forKey: backupKey)
+                defaults.removeObject(forKey: sourceKey)
+                DiagnosticLog.write("settings decode failed sourceKey=\(sourceKey) backupKey=\(backupKey) error=\(error.localizedDescription)")
                 loadWarning = L10n.t("No se pudieron leer los ajustes guardados; se han restaurado los valores por defecto.")
             }
         }

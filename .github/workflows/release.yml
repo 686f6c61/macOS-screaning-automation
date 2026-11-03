@@ -269,6 +269,13 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           ZIP="releases/Screening-Automation-${VERSION}-arm64.zip"
           NOTES="releases/Screening-Automation-${VERSION}-arm64.md"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "::error::Release $GITHUB_REF_NAME already exists"
+            exit 1
+          fi
+          # Se marca antes de crear: `gh release create` crea el borrador y
+          # luego sube los archivos, y si una subida falla el borrador ya existe.
+          echo "created=true" >> "$GITHUB_OUTPUT"
           gh release create "$GITHUB_REF_NAME" \
             "$ZIP" \
             releases/appcast.xml \
@@ -277,8 +284,6 @@ jobs:
             --draft \
             --title "Screening Automation ${VERSION}" \
             --notes-file "$NOTES"
-          # A partir de aquí, si algo falla, el borrador es de esta ejecución.
-          echo "created=true" >> "$GITHUB_OUTPUT"
           gh release edit "$GITHUB_REF_NAME" --draft=false
 
       # Solo se borra un borrador creado por esta misma ejecución, nunca uno
@@ -289,6 +294,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if ! IS_DRAFT="$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft 2>&1)"; then
+            if grep -qi "release not found" <<<"$IS_DRAFT"; then
+              echo "::notice::No release $GITHUB_REF_NAME was created; nothing to delete"
+              exit 0
+            fi
             echo "::warning::Could not inspect release $GITHUB_REF_NAME: $IS_DRAFT"
             exit 0
           fi

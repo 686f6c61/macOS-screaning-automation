@@ -293,6 +293,15 @@ final class CorruptSettingsTests: XCTestCase {
         // La clave ilegible se retira: el aviso no se repite en cada arranque.
         XCTAssertNil(defaults.data(forKey: "ScreeningAutomation.Settings.v1"))
         XCTAssertNil(AppSettings(defaults: defaults).loadWarning)
+
+        // Un segundo incidente no pisa la primera copia.
+        let otherGarbage = Data("{otra".utf8)
+        defaults.set(otherGarbage, forKey: "ScreeningAutomation.Settings.v1")
+        _ = AppSettings(defaults: defaults)
+        XCTAssertEqual(defaults.data(forKey: AppSettings.unreadableBackupKey), garbage)
+        let datedCopies = defaults.dictionaryRepresentation()
+            .filter { $0.key.hasPrefix(AppSettings.unreadableBackupKey + ".") }
+        XCTAssertEqual(datedCopies.values.first as? Data, otherGarbage)
     }
 }
 
@@ -401,6 +410,30 @@ final class ArmedCaptureTests: XCTestCase {
         XCTAssertTrue(secondSessionFinished)
         XCTAssertEqual(manager.lastCaptureURL?.lastPathComponent, "capture-2.png")
         XCTAssertTrue(manager.lastCaptureSucceeded)
+    }
+
+    /// Al terminar la ráfaga debe seguir visible el resultado de la última
+    /// captura, no «Modo armado finalizado».
+    func testLastResultStaysVisibleWhenBurstFinishes() async throws {
+        let suiteName = "ScreeningAutomationTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            throw TestError.defaultsCreationFailed
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let settings = AppSettings(defaults: defaults)
+        settings.selectedRegion = CaptureRegion(x: 0, y: 0, width: 10, height: 10, displayName: "Test", createdAt: Date())
+        settings.armedCaptureDelaySeconds = 2
+        settings.armedCaptureCount = 1
+        let manager = CaptureManager(settings: settings, captureSettleDelay: 0) { _ in
+            .failure(CaptureError.invalidImage)
+        }
+
+        manager.toggleArmedBurst()
+        let finished = await waitUntil(timeout: 4) { !manager.armedCaptureActive }
+
+        XCTAssertTrue(finished)
+        XCTAssertEqual(manager.lastMessage, CaptureError.invalidImage.localizedDescription)
+        XCTAssertEqual(manager.armedCaptureMessage, L10n.t("Modo armado finalizado"))
     }
 
     private func waitUntil(
