@@ -1,5 +1,5 @@
-// Utilidades de geometría de pantallas y de nombres de archivo compartidas por
-// la captura de imagen, la grabación de vídeo y los activadores.
+// Geometría de pantallas compartida por la captura de imagen, la grabación de
+// vídeo y los activadores.
 //
 // macOS usa dos sistemas de coordenadas globales:
 // - AppKit (`NSScreen.frame`, `NSEvent.mouseLocation`): origen abajo a la
@@ -68,31 +68,5 @@ enum ScreenGeometry {
                 return point.x >= frame.maxX - cornerSize && point.y <= frame.minY + cornerSize
             }
         }
-    }
-}
-
-/// Nombres y rutas de los archivos generados (capturas y vídeos).
-enum CaptureFileNaming {
-    // `DateFormatter` es `Sendable` y seguro entre hilos; se comparte para no
-    // crear uno por captura.
-    private static let formatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss-SSS"
-        return formatter
-    }()
-
-    /// Nombre con marca de tiempo al milisegundo, p. ej. `SA_2026-11-03_16-39-01-123.png`.
-    static func fileName(fileExtension: String, date: Date = Date()) -> String {
-        "SA_\(formatter.string(from: date)).\(fileExtension)"
-    }
-
-    /// Crea la carpeta de salida si no existe y devuelve la URL del nuevo archivo.
-    ///
-    /// - Throws: el error de `FileManager` si la carpeta no se puede crear.
-    static func makeURL(in folderPath: String, fileExtension: String) throws -> URL {
-        let folderURL = URL(fileURLWithPath: folderPath, isDirectory: true)
-        try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
-        return folderURL.appendingPathComponent(fileName(fileExtension: fileExtension), isDirectory: false)
     }
 }

@@ -39,7 +39,10 @@ final class PermissionStatus: ObservableObject {
     /// corrige un preflight negativo; `.unknown` (timeout, pantalla bloqueada)
     /// no se interpreta como denegación.
     private var screenCaptureAccess: ScreenCaptureAccess = .unknown
-    private var lastPreflight: Bool?
+    /// Último resultado de `CGPreflightScreenCaptureAccess`. Sirve para detectar
+    /// el paso de concedido a denegado (permiso retirado en Ajustes) y olvidar
+    /// entonces la confirmación de ScreenCaptureKit.
+    private var lastPreflight = false
     private var accessCheckInFlight = false
     private var didRunLaunchAccessCheck = false
 
@@ -101,7 +104,7 @@ final class PermissionStatus: ObservableObject {
         let preflight = screenCapturePreflightProbe()
         if preflight {
             screenCaptureAccess = .granted
-        } else if lastPreflight == true {
+        } else if lastPreflight {
             // El preflight pasó de concedido a denegado: el usuario lo retiró
             // en Ajustes. Se olvida la confirmación anterior.
             screenCaptureAccess = .unknown

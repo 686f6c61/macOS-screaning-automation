@@ -1,18 +1,26 @@
+// Modelo de ajustes de usuario y tipos que los componen (zona, formato, esquina).
+
 import AppKit
 import Foundation
 
+/// Zona de captura en coordenadas Quartz globales (puntos, origen arriba a la
+/// izquierda de la pantalla principal). Es el sistema que usan
+/// ScreenCaptureKit y `screencapture -R`. Ver `ScreenGeometry`.
 struct CaptureRegion: Codable, Equatable {
     var x: Int
     var y: Int
     var width: Int
     var height: Int
+    /// Nombre de la pantalla donde se seleccionó; solo informativo.
     var displayName: String
     var createdAt: Date
 
+    /// Argumento para `screencapture -R x,y,ancho,alto`.
     var screencaptureArgument: String {
         "\(x),\(y),\(width),\(height)"
     }
 
+    /// Resumen para la interfaz, p. ej. `800x600 @ 100,200`.
     var summary: String {
         "\(width)x\(height) @ \(x),\(y)"
     }
@@ -63,6 +71,7 @@ struct CaptureRegion: Codable, Equatable {
     }
 }
 
+/// Formato de archivo de las capturas de imagen.
 enum ImageFormat: String, CaseIterable, Codable, Identifiable {
     case png
     case jpg
@@ -75,6 +84,7 @@ enum ImageFormat: String, CaseIterable, Codable, Identifiable {
         rawValue
     }
 
+    /// Valor para `screencapture -t`, que usa `tif` en lugar de `tiff`.
     var screencaptureToken: String {
         self == .tiff ? "tif" : rawValue
     }
@@ -84,6 +94,7 @@ enum ImageFormat: String, CaseIterable, Codable, Identifiable {
     }
 }
 
+/// Esquina de pantalla que activa la captura al mantener el puntero en ella.
 enum HoverGestureCorner: String, CaseIterable, Codable, Identifiable {
     case topLeft
     case topRight
@@ -142,6 +153,9 @@ final class AppSettings: ObservableObject {
     static let armedCaptureIntervalRange = 0.5...30.0
     static let armedCaptureCountRange = 1...120
 
+    static let defaultImageFormat = ImageFormat.png
+    static let defaultHoverGestureEnabled = true
+    static let defaultHoverGestureCorner = HoverGestureCorner.topLeft
     static let defaultClickCount = 5
     static let defaultClickWindowSeconds = 1.4
     static let defaultTriggerCooldownSeconds = 2.0
@@ -153,6 +167,8 @@ final class AppSettings: ObservableObject {
     private let defaultsKey = "ScreeningAutomation.Settings.v1"
     /// Clave de la app cuando se llamaba «Monitor Screening»; solo se lee.
     private let legacyDefaultsKey = "MonitorScreening.Settings.v1"
+    /// Copia de unos ajustes que no se pudieron leer, para recuperarlos a mano.
+    static let unreadableBackupKey = "ScreeningAutomation.Settings.v1.unreadable"
     private let defaults: UserDefaults
     private(set) var hadPersistedSettings = false
     /// Aviso para el usuario si los ajustes guardados no se pudieron leer.
@@ -212,9 +228,9 @@ final class AppSettings: ObservableObject {
 
     /// Carga los ajustes guardados o, si no hay, los valores por defecto.
     ///
-    /// Si existen datos pero no se pueden decodificar, se conserva una copia en
-    /// otra clave antes de que el primer cambio los sobrescriba, y se publica
-    /// `loadWarning` para avisar al usuario.
+    /// Si existen datos pero no se pueden decodificar, se copian una sola vez
+    /// a `unreadableBackupKey`, se borra la clave original (para no repetir el
+    /// aviso en cada arranque) y se publica `loadWarning`.
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         let data = defaults.data(forKey: defaultsKey) ?? defaults.data(forKey: legacyDefaultsKey)
@@ -223,9 +239,11 @@ final class AppSettings: ObservableObject {
             do {
                 persisted = try JSONDecoder().decode(PersistedSettings.self, from: data)
             } catch {
-                let backupKey = "\(defaultsKey).unreadable-\(Int(Date().timeIntervalSince1970))"
-                defaults.set(data, forKey: backupKey)
-                DiagnosticLog.write("settings decode failed backupKey=\(backupKey) error=\(error.localizedDescription)")
+                if defaults.object(forKey: Self.unreadableBackupKey) == nil {
+                    defaults.set(data, forKey: Self.unreadableBackupKey)
+                }
+                defaults.removeObject(forKey: defaultsKey)
+                DiagnosticLog.write("settings decode failed backupKey=\(Self.unreadableBackupKey) error=\(error.localizedDescription)")
                 loadWarning = L10n.t("No se pudieron leer los ajustes guardados; se han restaurado los valores por defecto.")
             }
         }
@@ -233,25 +251,35 @@ final class AppSettings: ObservableObject {
         hadPersistedSettings = persisted != nil
         selectedRegion = persisted?.selectedRegion
         outputFolderPath = persisted?.outputFolderPath ?? Self.defaultOutputFolder.path
-        imageFormat = persisted?.imageFormat ?? .png
-        clickCount = Self.clampClickCount(persisted?.clickCount ?? Self.defaultClickCount)
-        clickWindowSeconds = Self.clampClickWindowSeconds(persisted?.clickWindowSeconds ?? Self.defaultClickWindowSeconds)
-        triggerCooldownSeconds = Self.clampTriggerCooldownSeconds(
-            persisted?.triggerCooldownSeconds ?? Self.defaultTriggerCooldownSeconds
+        imageFormat = persisted?.imageFormat ?? Self.defaultImageFormat
+        clickCount = Self.clamp(persisted?.clickCount ?? Self.defaultClickCount, to: Self.clickCountRange)
+        clickWindowSeconds = Self.clamp(
+            persisted?.clickWindowSeconds ?? Self.defaultClickWindowSeconds,
+            to: Self.clickWindowRange
+        )
+        triggerCooldownSeconds = Self.clamp(
+            persisted?.triggerCooldownSeconds ?? Self.defaultTriggerCooldownSeconds,
+            to: Self.triggerCooldownRange
         )
         triggersPaused = persisted?.triggersPaused ?? false
-        hoverGestureEnabled = persisted?.hoverGestureEnabled ?? true
-        hoverGestureCorner = persisted?.hoverGestureCorner ?? .topLeft
-        hoverGestureTimeoutSeconds = Self.clampHoverGestureTimeoutSeconds(
-            persisted?.hoverGestureTimeoutSeconds ?? Self.defaultHoverGestureTimeoutSeconds
+        hoverGestureEnabled = persisted?.hoverGestureEnabled ?? Self.defaultHoverGestureEnabled
+        hoverGestureCorner = persisted?.hoverGestureCorner ?? Self.defaultHoverGestureCorner
+        hoverGestureTimeoutSeconds = Self.clamp(
+            persisted?.hoverGestureTimeoutSeconds ?? Self.defaultHoverGestureTimeoutSeconds,
+            to: Self.hoverGestureTimeoutRange
         )
-        armedCaptureDelaySeconds = Self.clampArmedCaptureDelaySeconds(
-            persisted?.armedCaptureDelaySeconds ?? Self.defaultArmedCaptureDelaySeconds
+        armedCaptureDelaySeconds = Self.clamp(
+            persisted?.armedCaptureDelaySeconds ?? Self.defaultArmedCaptureDelaySeconds,
+            to: Self.armedCaptureDelayRange
         )
-        armedCaptureIntervalSeconds = Self.clampArmedCaptureIntervalSeconds(
-            persisted?.armedCaptureIntervalSeconds ?? Self.defaultArmedCaptureIntervalSeconds
+        armedCaptureIntervalSeconds = Self.clamp(
+            persisted?.armedCaptureIntervalSeconds ?? Self.defaultArmedCaptureIntervalSeconds,
+            to: Self.armedCaptureIntervalRange
         )
-        armedCaptureCount = Self.clampArmedCaptureCount(persisted?.armedCaptureCount ?? Self.defaultArmedCaptureCount)
+        armedCaptureCount = Self.clamp(
+            persisted?.armedCaptureCount ?? Self.defaultArmedCaptureCount,
+            to: Self.armedCaptureCountRange
+        )
     }
 
     static var defaultOutputFolder: URL {
@@ -260,35 +288,8 @@ final class AppSettings: ObservableObject {
             .appendingPathComponent("Screening Automation", isDirectory: true)
     }
 
-    static func clampClickCount(_ value: Int) -> Int {
-        clamp(value, to: clickCountRange)
-    }
-
-    static func clampClickWindowSeconds(_ value: Double) -> Double {
-        clamp(value, to: clickWindowRange)
-    }
-
-    static func clampTriggerCooldownSeconds(_ value: Double) -> Double {
-        clamp(value, to: triggerCooldownRange)
-    }
-
-    static func clampHoverGestureTimeoutSeconds(_ value: Double) -> Double {
-        clamp(value, to: hoverGestureTimeoutRange)
-    }
-
-    static func clampArmedCaptureDelaySeconds(_ value: Double) -> Double {
-        clamp(value, to: armedCaptureDelayRange)
-    }
-
-    static func clampArmedCaptureIntervalSeconds(_ value: Double) -> Double {
-        clamp(value, to: armedCaptureIntervalRange)
-    }
-
-    static func clampArmedCaptureCount(_ value: Int) -> Int {
-        clamp(value, to: armedCaptureCountRange)
-    }
-
-    private static func clamp<Value: Comparable>(_ value: Value, to range: ClosedRange<Value>) -> Value {
+    /// Acota `value` al rango cerrado `range`.
+    static func clamp<Value: Comparable>(_ value: Value, to range: ClosedRange<Value>) -> Value {
         min(max(value, range.lowerBound), range.upperBound)
     }
 
@@ -297,6 +298,7 @@ final class AppSettings: ObservableObject {
         loadWarning = nil
     }
 
+    /// Abre un panel para elegir la carpeta de salida.
     func chooseOutputFolder() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false

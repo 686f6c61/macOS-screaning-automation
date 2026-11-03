@@ -65,6 +65,8 @@ enum VideoWriterError: Error, Equatable, LocalizedError {
     case unsupportedSettings
     /// Se detuvo la grabación sin recibir ningún fotograma completo.
     case noFrames
+    /// El escritor falló antes de escribir el primer fotograma.
+    case couldNotStart(String)
     /// `AVAssetWriter` falló durante la escritura o el cierre.
     case writerFailed(String)
 
@@ -76,8 +78,20 @@ enum VideoWriterError: Error, Equatable, LocalizedError {
             return L10n.t("El codificador no admite el tamano de la zona.")
         case .noFrames:
             return L10n.t("No se recibio ningun fotograma de la pantalla.")
+        case .couldNotStart(let reason):
+            return L10n.format("No se pudo iniciar la escritura del video: %@", reason)
         case .writerFailed(let reason):
             return L10n.format("La grabacion no se pudo guardar: %@", reason)
+        }
+    }
+
+    /// `true` si el error implica que no hay nada útil en disco.
+    var leavesNoFile: Bool {
+        switch self {
+        case .cannotCreate, .unsupportedSettings, .noFrames, .couldNotStart:
+            return true
+        case .writerFailed:
+            return false
         }
     }
 }
@@ -97,6 +111,9 @@ final class VideoWriterSession: @unchecked Sendable {
     private let input: AVAssetWriterInput
     private let onFailure: (@Sendable (String) -> Void)?
     private var startedSession = false
+    /// Tras `finish` o `discard` se ignoran los fotogramas que aún lleguen,
+    /// para que ninguno arranque el escritor y recree el archivo.
+    private var isClosed = false
     private var droppedFrames = 0
     private var failureReason: String?
 
@@ -156,6 +173,9 @@ final class VideoWriterSession: @unchecked Sendable {
     /// descartan y se cuentan para el diagnóstico.
     func append(_ sampleBuffer: CMSampleBuffer) {
         dispatchPrecondition(condition: .onQueue(queue))
+        guard !isClosed else {
+            return
+        }
         if writer.status == .unknown {
             guard writer.startWriting() else {
                 recordFailure("startWriting: \(writer.error?.localizedDescription ?? "unknown")")
@@ -181,12 +201,13 @@ final class VideoWriterSession: @unchecked Sendable {
     /// Cierra el archivo y notifica el resultado desde una cola arbitraria.
     func finish(completion: @escaping @Sendable (Result<Void, VideoWriterError>) -> Void) {
         queue.async {
+            self.isClosed = true
             if self.droppedFrames > 0 {
                 DiagnosticLog.write("video writer dropped frames count=\(self.droppedFrames)")
             }
             guard self.startedSession else {
                 self.cancelIfWriting()
-                completion(.failure(self.failureReason.map(VideoWriterError.writerFailed) ?? .noFrames))
+                completion(.failure(self.failureReason.map(VideoWriterError.couldNotStart) ?? .noFrames))
                 return
             }
             // `finishWriting` sobre un escritor `.failed` lanza una excepción de
@@ -214,6 +235,7 @@ final class VideoWriterSession: @unchecked Sendable {
     /// procesado los fotogramas pendientes, llama a `completion`.
     func discard(completion: @escaping @Sendable () -> Void) {
         queue.async {
+            self.isClosed = true
             self.cancelIfWriting()
             completion()
         }
@@ -300,7 +322,7 @@ struct ScreenCaptureVideoSource: VideoCaptureSource {
             width: Int(resolved.localRect.width * resolved.scale),
             height: Int(resolved.localRect.height * resolved.scale)
         )
-        let url = try CaptureFileNaming.makeURL(in: request.outputFolderPath, fileExtension: "mp4")
+        let url = try CaptureFiles.makeURL(in: request.outputFolderPath, fileExtension: "mp4")
         let session = try VideoWriterSession(url: url, pixelWidth: size.width, pixelHeight: size.height) { reason in
             onInterrupted(VideoWriterError.writerFailed(reason).localizedDescription)
         }
@@ -373,7 +395,7 @@ private final class ScreenCaptureVideoHandle: VideoCaptureHandle {
         // que aún estuvieran en la cola y que podrían recrear el archivo.
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             session.discard {
-                VideoRecorder.removeFile(at: url)
+                CaptureFiles.remove(at: url)
                 continuation.resume()
             }
         }
@@ -456,6 +478,9 @@ final class VideoRecorder: ObservableObject {
 
     private let settings: AppSettings
     private let source: VideoCaptureSource
+    /// Interrupción llegada mientras la captura aún arrancaba; se atiende en
+    /// cuanto pasa a `recording`.
+    private var pendingInterruption: (id: UUID, message: String)?
     private let maxDuration: TimeInterval
     private var timer: Timer?
     private var state: State = .idle {
@@ -579,6 +604,10 @@ final class VideoRecorder: ObservableObject {
         state = .recording(ActiveRecording(id: id, handle: handle, startedAt: Date()))
         lastMessage = L10n.t("Grabando video de la zona")
         startTimer()
+        if let pending = pendingInterruption, pending.id == id {
+            pendingInterruption = nil
+            await handleInterruption(id: id, message: pending.message)
+        }
     }
 
     private func finalize(_ active: ActiveRecording, reason: String?) async -> Bool {
@@ -595,20 +624,20 @@ final class VideoRecorder: ObservableObject {
         let fileName = active.handle.fileURL.lastPathComponent
         switch result {
         case .success:
-            CaptureManager.hardenCaptureFile(at: active.handle.fileURL)
+            CaptureFiles.harden(at: active.handle.fileURL)
             let saved = L10n.format("Guardado: %@", fileName)
             lastMessage = reason.map { "\($0) \(saved)" } ?? saved
             DiagnosticLog.write("video recording saved file=\(fileName)")
             return true
-        case .failure(.noFrames):
-            Self.removeFile(at: active.handle.fileURL)
-            DiagnosticLog.write("video recording discarded reason=no-frames")
-            fail(reason ?? VideoWriterError.noFrames.localizedDescription)
+        case .failure(let error) where error.leavesNoFile:
+            CaptureFiles.remove(at: active.handle.fileURL)
+            DiagnosticLog.write("video recording discarded error=\(error.localizedDescription)")
+            fail(reason ?? error.localizedDescription)
             return false
         case .failure(let error):
             // El MP4 va fragmentado: aunque el cierre falle, lo grabado suele
             // ser recuperable, así que se conserva en lugar de borrarlo.
-            CaptureManager.hardenCaptureFile(at: active.handle.fileURL)
+            CaptureFiles.harden(at: active.handle.fileURL)
             DiagnosticLog.write("video recording finalize failed file=\(fileName) error=\(error.localizedDescription)")
             fail(L10n.format("La grabacion puede estar incompleta (%@): %@", fileName, reason ?? error.localizedDescription))
             return false
@@ -619,16 +648,19 @@ final class VideoRecorder: ObservableObject {
     private func finishWithTimeout(_ handle: VideoCaptureHandle) async -> Result<Void, VideoWriterError> {
         await withCheckedContinuation { continuation in
             let resumed = LockedBox(false)
-            let resumeOnce: @Sendable (Result<Void, VideoWriterError>) -> Void = { result in
+            Task { @MainActor in
+                let result = await handle.finish()
                 if !resumed.exchange(true) {
                     continuation.resume(returning: result)
+                } else {
+                    // Llegó después del tope: el usuario ya vio el aviso.
+                    DiagnosticLog.write("video finalize late result=\(result)")
                 }
             }
-            Task { @MainActor in
-                resumeOnce(await handle.finish())
-            }
             DispatchQueue.global().asyncAfter(deadline: .now() + Self.finalizeTimeout) {
-                resumeOnce(.failure(.writerFailed("timeout")))
+                if !resumed.exchange(true) {
+                    continuation.resume(returning: .failure(.writerFailed("timeout")))
+                }
             }
         }
     }
@@ -637,6 +669,10 @@ final class VideoRecorder: ObservableObject {
     /// indicador de privacidad, pantalla desconectada, escritor fallido...).
     /// Se guarda lo grabado hasta ese momento.
     private func handleInterruption(id: UUID, message: String) async {
+        if case .starting(id) = state {
+            pendingInterruption = (id, message)
+            return
+        }
         guard case .recording(let active) = state, active.id == id else {
             return
         }
@@ -680,17 +716,6 @@ final class VideoRecorder: ObservableObject {
         if elapsed >= maxDuration {
             DiagnosticLog.write("video recording reached max duration")
             await stop(reason: L10n.format("Grabacion detenida al llegar a %@.", Self.format(elapsed: maxDuration)))
-        }
-    }
-
-    /// Borra un archivo y registra el error si no se puede (salvo que no exista).
-    nonisolated static func removeFile(at url: URL) {
-        do {
-            try FileManager.default.removeItem(at: url)
-        } catch let error as CocoaError where error.code == .fileNoSuchFile {
-            return
-        } catch {
-            DiagnosticLog.write("video file remove failed file=\(url.lastPathComponent) error=\(error.localizedDescription)")
         }
     }
 
