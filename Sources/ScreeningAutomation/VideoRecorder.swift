@@ -69,6 +69,8 @@ enum VideoWriterError: Error, Equatable, LocalizedError {
     case couldNotStart(String)
     /// `AVAssetWriter` falló durante la escritura o el cierre.
     case writerFailed(String)
+    /// El cierre no terminó dentro del tope; puede completarse más tarde.
+    case timedOut
 
     var errorDescription: String? {
         switch self {
@@ -82,15 +84,19 @@ enum VideoWriterError: Error, Equatable, LocalizedError {
             return L10n.format("No se pudo iniciar la escritura del video: %@", reason)
         case .writerFailed(let reason):
             return L10n.format("La grabacion no se pudo guardar: %@", reason)
+        case .timedOut:
+            return L10n.t("El cierre del video esta tardando mas de lo normal.")
         }
     }
 
-    /// `true` si el error implica que no hay nada útil en disco.
+    /// `true` si el error implica que no hay nada útil en disco. Un MP4 sin
+    /// cerrar no se puede reproducir; solo se conserva si el cierre venció el
+    /// tope, porque aún puede completarse.
     var leavesNoFile: Bool {
         switch self {
-        case .cannotCreate, .unsupportedSettings, .noFrames, .couldNotStart:
+        case .cannotCreate, .unsupportedSettings, .noFrames, .couldNotStart, .writerFailed:
             return true
-        case .writerFailed:
+        case .timedOut:
             return false
         }
     }
@@ -134,9 +140,10 @@ final class VideoWriterSession: @unchecked Sendable {
         } catch {
             throw VideoWriterError.cannotCreate(error.localizedDescription)
         }
-        // Fragmentar el MP4 permite recuperar lo grabado si la app termina de
-        // forma abrupta antes de escribir el átomo `moov` final.
-        writer.movieFragmentInterval = CMTime(seconds: 2, preferredTimescale: 600)
+        // No se usa `movieFragmentInterval`: con las marcas de tiempo del reloj
+        // del sistema que entrega ScreenCaptureKit, el escritor MP4 fragmentado
+        // falla al escribir la cabecera (`MovieHeaderMaker` err -16341) a los
+        // pocos segundos. Lo cubre `testRecordingWithHostClockTimestamps`.
 
         let outputSettings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.h264,
@@ -640,12 +647,12 @@ final class VideoRecorder: ObservableObject {
             fail(reason ?? error.localizedDescription)
             return false
         case .failure(let error):
-            // El MP4 va fragmentado: aunque el cierre falle, lo grabado suele
-            // ser recuperable, así que se conserva en lugar de borrarlo.
+            // Solo llega aquí `.timedOut`: el cierre puede terminar más tarde,
+            // así que el archivo se conserva (ver `applyLateFinalization`).
             CaptureFiles.harden(at: active.handle.fileURL)
             DiagnosticLog.write("video recording finalize failed file=\(fileName) error=\(error.localizedDescription)")
             fail(L10n.format("La grabacion puede estar incompleta (%@): %@", fileName, reason ?? error.localizedDescription))
-            if error == .writerFailed("timeout") {
+            if error == .timedOut {
                 timeoutMessage = (active.handle.fileURL, lastMessage)
             }
             return false
@@ -668,7 +675,7 @@ final class VideoRecorder: ObservableObject {
             }
             DispatchQueue.global().asyncAfter(deadline: .now() + Self.finalizeTimeout) {
                 if !resumed.exchange(true) {
-                    continuation.resume(returning: .failure(.writerFailed("timeout")))
+                    continuation.resume(returning: .failure(.timedOut))
                 }
             }
         }

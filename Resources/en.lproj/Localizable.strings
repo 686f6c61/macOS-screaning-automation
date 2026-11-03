@@ -52,6 +52,7 @@
 "Disparado" = "Triggered";
 "Disparo por %@" = "Trigger by %@";
 "Disparo por esquina" = "Trigger by corner";
+"El cierre del video esta tardando mas de lo normal." = "Closing the video is taking longer than usual.";
 "El codificador no admite el tamano de la zona." = "The encoder does not support the region size.";
 "Elige como quieres lanzar las capturas de la zona." = "Choose how you want to trigger captures of the region.";
 "Empezar" = "Get started";
