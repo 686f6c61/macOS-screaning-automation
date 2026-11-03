@@ -10,6 +10,7 @@
 "Actualizaciones" = "Actualizaciones";
 "Actualizar" = "Actualizar";
 "Ajustes" = "Ajustes";
+"Ajustes…" = "Ajustes…";
 "Armado:" = "Armado:";
 "Armado: captura %d/%d" = "Armado: captura %d/%d";
 "Armado: error %d/%d" = "Armado: error %d/%d";
@@ -114,6 +115,7 @@
 "Permisos" = "Permisos";
 "Permisos OK" = "Permisos OK";
 "Permisos pendientes" = "Permisos pendientes";
+"Permisos pendientes: revisa Ajustes" = "Permisos pendientes: revisa Ajustes";
 "Podras cambiarla en cualquier momento desde Ajustes o el menu SA." = "Podras cambiarla en cualquier momento desde Ajustes o el menu SA.";
 "Preparando grabacion..." = "Preparando grabacion...";
 "Probar activador" = "Probar activador";
@@ -141,6 +143,7 @@
 "Sin validar" = "Sin validar";
 "Sin zona" = "Sin zona";
 "Sin zona definida" = "Sin zona definida";
+"Sin zona: usa Definir zona" = "Sin zona: usa «Definir zona»";
 "Solicitar" = "Solicitar";
 "Tiempo minimo entre dos disparos automaticos; evita capturas encadenadas." = "Tiempo minimo entre dos disparos automaticos; evita capturas encadenadas.";
 "Tiempo que el puntero debe permanecer en la esquina antes de disparar." = "Tiempo que el puntero debe permanecer en la esquina antes de disparar.";

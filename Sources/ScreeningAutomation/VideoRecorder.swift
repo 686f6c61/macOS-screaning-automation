@@ -464,7 +464,11 @@ private final class FrameForwarder: NSObject, SCStreamOutput, SCStreamDelegate, 
 final class VideoRecorder: ObservableObject {
     /// `true` mientras se prepara o se graba; controla el botón del menú.
     @Published private(set) var isRecording = false
-    @Published private(set) var lastMessage = ""
+    @Published private(set) var lastMessage = "" {
+        didSet { lastMessageDate = Date() }
+    }
+    /// Cuándo cambió `lastMessage`; ver `CaptureManager.lastMessageDate`.
+    private(set) var lastMessageDate = Date.distantPast
     @Published private(set) var elapsedDescription = "0:00"
 
     /// Tiempo máximo para cerrar el MP4 antes de darlo por fallido.

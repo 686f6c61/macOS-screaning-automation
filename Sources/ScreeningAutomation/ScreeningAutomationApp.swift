@@ -212,8 +212,6 @@ private struct MenuContent: View {
     @ObservedObject private var settings: AppSettings
     @ObservedObject private var captureManager: CaptureManager
     @ObservedObject private var permissions: PermissionStatus
-    @ObservedObject private var eventMonitor: EventTapMonitor
-    @ObservedObject private var updater: AppUpdater
     @ObservedObject private var videoRecorder: VideoRecorder
     private let controller: AppController
 
@@ -222,8 +220,6 @@ private struct MenuContent: View {
         _settings = ObservedObject(wrappedValue: controller.settings)
         _captureManager = ObservedObject(wrappedValue: controller.captureManager)
         _permissions = ObservedObject(wrappedValue: controller.permissions)
-        _eventMonitor = ObservedObject(wrappedValue: controller.eventMonitor)
-        _updater = ObservedObject(wrappedValue: controller.updater)
         _videoRecorder = ObservedObject(wrappedValue: controller.videoRecorder)
     }
 
@@ -236,6 +232,16 @@ private struct MenuContent: View {
         .disabled(settings.selectedRegion == nil || captureManager.isCapturing)
 
         Button {
+            controller.videoRecorder.toggle()
+        } label: {
+            Label(
+                videoRecorder.isRecording ? L10n.t("Detener grabacion") : L10n.t("Grabar video de la zona"),
+                systemImage: videoRecorder.isRecording ? "stop.circle" : "video"
+            )
+        }
+        .disabled(settings.selectedRegion == nil)
+
+        Button {
             captureManager.toggleArmedBurst()
         } label: {
             Label(
@@ -246,20 +252,21 @@ private struct MenuContent: View {
         .disabled(settings.selectedRegion == nil)
 
         Button {
-            controller.videoRecorder.toggle()
-        } label: {
-            Label(
-                videoRecorder.isRecording ? L10n.t("Detener grabacion") : L10n.t("Grabar video de la zona"),
-                systemImage: videoRecorder.isRecording ? "stop.rectangle" : "video"
-            )
-        }
-        .disabled(settings.selectedRegion == nil)
-
-        Button {
             controller.defineRegion()
         } label: {
             Label("Definir zona", systemImage: "viewfinder")
         }
+
+        Divider()
+
+        // Avisos: solo cuando hay algo que resolver.
+        if settings.selectedRegion == nil {
+            Label("Sin zona: usa Definir zona", systemImage: "exclamationmark.triangle.fill")
+        }
+        if !permissions.allAllowed {
+            Label("Permisos pendientes: revisa Ajustes", systemImage: "exclamationmark.triangle.fill")
+        }
+        Text(statusLine)
 
         Divider()
 
@@ -281,38 +288,7 @@ private struct MenuContent: View {
         Button {
             controller.openSettingsWindow()
         } label: {
-            Label("Ajustes", systemImage: "gearshape")
-        }
-
-        Button {
-            updater.checkForUpdates()
-        } label: {
-            Label("Buscar actualizaciones...", systemImage: "arrow.down.circle")
-        }
-        .disabled(!updater.canCheckForUpdates)
-
-        Divider()
-
-        if let region = settings.selectedRegion {
-            Text(region.summary)
-        } else {
-            Text("Sin zona")
-        }
-        Label(
-            permissions.summary,
-            systemImage: permissions.allAllowed ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
-        )
-        Text(captureManager.lastMessage)
-        if captureManager.armedCaptureActive {
-            Text(captureManager.armedCaptureMessage)
-        }
-        if videoRecorder.isRecording {
-            Label(
-                L10n.format("Grabando %@", videoRecorder.elapsedDescription),
-                systemImage: "record.circle"
-            )
-        } else if !videoRecorder.lastMessage.isEmpty {
-            Text(videoRecorder.lastMessage)
+            Label("Ajustes…", systemImage: "gearshape")
         }
 
         Divider()
@@ -322,5 +298,21 @@ private struct MenuContent: View {
         } label: {
             Label("Salir", systemImage: "power")
         }
+    }
+
+    /// Una sola línea de estado: lo que está en curso o, si no hay nada, el
+    /// mensaje más reciente entre capturas y vídeo.
+    private var statusLine: String {
+        if videoRecorder.isRecording {
+            return L10n.format("Grabando %@", videoRecorder.elapsedDescription)
+        }
+        if captureManager.armedCaptureActive {
+            return captureManager.armedCaptureMessage
+        }
+        if !videoRecorder.lastMessage.isEmpty,
+           videoRecorder.lastMessageDate > captureManager.lastMessageDate {
+            return videoRecorder.lastMessage
+        }
+        return captureManager.lastMessage
     }
 }
