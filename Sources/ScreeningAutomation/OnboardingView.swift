@@ -90,10 +90,7 @@ struct OnboardingView: View {
                 title: "Monitorizacion de entrada",
                 allowed: permissions.inputMonitoringAllowed,
                 requestTitle: "Solicitar",
-                requestAction: {
-                    eventMonitor.requestInputMonitoringPermission()
-                    permissions.refresh()
-                },
+                requestAction: controller.requestInputMonitoring,
                 settingsAction: eventMonitor.openInputMonitoringSettings,
                 helpText: HelpText.inputMonitoring
             )
@@ -101,12 +98,7 @@ struct OnboardingView: View {
                 title: "Captura de pantalla",
                 allowed: permissions.screenCaptureAllowed,
                 requestTitle: "Solicitar",
-                requestAction: {
-                    if !ScreenCapturePermission.request() {
-                        ScreenCapturePermission.openSettings()
-                    }
-                    permissions.refresh()
-                },
+                requestAction: controller.requestScreenCapture,
                 settingsAction: ScreenCapturePermission.openSettings,
                 helpText: HelpText.screenCapture
             )

@@ -21,7 +21,6 @@
 "Atras" = "Back";
 "Bienvenido a Screening Automation" = "Welcome to Screening Automation";
 "Buscar actualizaciones..." = "Check for Updates...";
-"CGEventTap no disponible; usando AppKit global." = "CGEventTap unavailable; using AppKit global.";
 "Cancelar" = "Cancel";
 "Cancelar modo armado" = "Cancel armed burst";
 "Captura de pantalla" = "Screen Recording";
@@ -32,6 +31,7 @@
 "Capturas: %lld" = "Captures: %lld";
 "Carpeta" = "Folder";
 "Carpeta del disco donde se guardan las capturas." = "Disk folder where captures are saved.";
+"CGEventTap no disponible; usando AppKit global." = "CGEventTap unavailable; using AppKit global.";
 "Cinco clics rapidos (configurable) disparan una captura." = "Five quick clicks (configurable) trigger a capture.";
 "Clic visto por %@ @ %d,%d" = "Click seen by %@ at %d,%d";
 "Clics" = "Clicks";
@@ -50,6 +50,7 @@
 "Disparado" = "Triggered";
 "Disparo por %@" = "Trigger by %@";
 "Disparo por esquina" = "Trigger by corner";
+"El codificador no admite el tamano de la zona." = "The encoder does not support the region size.";
 "Elige como quieres lanzar las capturas de la zona." = "Choose how you want to trigger captures of the region.";
 "Empezar" = "Get started";
 "Escucha" = "Listening";
@@ -57,9 +58,13 @@
 "Espera inicial y serie de capturas con intervalo fijo." = "Initial delay and a series of captures at a fixed interval.";
 "Esquina" = "Corner";
 "Esquina de la pantalla que activa la captura." = "Screen corner that activates the capture.";
+"Falta el permiso de Grabacion de pantalla. Activalo en Ajustes y reinicia la app." = "Screen Recording permission is missing. Enable it in System Settings and restart the app.";
 "Formato" = "Format";
 "Formato de archivo de las capturas: PNG sin perdidas, JPG mas ligero, PDF o TIFF." = "Capture file format: lossless PNG, lighter JPG, PDF or TIFF.";
 "Fuera" = "Outside";
+"Grabacion cancelada." = "Recording cancelled.";
+"Grabacion detenida al llegar a %@." = "Recording stopped after reaching %@.";
+"Grabacion interrumpida: %@" = "Recording interrupted: %@";
 "Grabando %@" = "Recording %@";
 "Grabando video de la zona" = "Recording video of the region";
 "Grabar video de la zona" = "Record video of the region";
@@ -70,8 +75,10 @@
 "La captura ha superado el tiempo de espera." = "The capture timed out.";
 "La captura no produjo una imagen valida." = "The capture did not produce a valid image.";
 "La grabacion no se pudo guardar." = "The recording could not be saved.";
+"La grabacion no se pudo guardar: %@" = "The recording could not be saved: %@";
 "La zona no esta en ninguna pantalla activa." = "The region is not on any active display.";
 "Listo" = "Ready";
+"macOS exige dos permisos para escuchar clics y capturar la pantalla." = "macOS requires two permissions to listen for clicks and capture the screen.";
 "Mantener el puntero en la esquina elegida durante unos segundos." = "Hold the pointer in the chosen corner for a few seconds.";
 "Menu SA" = "SA menu";
 "Modo armado" = "Armed mode";
@@ -84,6 +91,8 @@
 "No se encontro la pantalla de la zona." = "Could not find the display for the region.";
 "No se pudo crear imagen de la zona." = "Could not create an image of the region.";
 "No se pudo preparar el archivo de video." = "Could not prepare the video file.";
+"No se pudo preparar el archivo de video: %@" = "Could not prepare the video file: %@";
+"No se recibio ningun fotograma de la pantalla." = "No frames were received from the screen.";
 "Numero de clics necesario para disparar una captura dentro de la ventana de tiempo." = "Number of clicks needed to trigger a capture within the time window.";
 "Numero total de capturas de la serie." = "Total number of captures in the series.";
 "OK" = "OK";
@@ -109,11 +118,15 @@
 "Region fija de la pantalla que se captura en cada disparo. Redefinela con Definir." = "Fixed screen region captured on every trigger. Redefine it with Define.";
 "Salida" = "Output";
 "Salir" = "Quit";
+"screencapture termino con codigo %d." = "screencapture exited with code %d.";
+"screencapture termino con codigo %d: %@" = "screencapture exited with code %d: %@";
+"Se dejo de compartir la pantalla desde el sistema." = "Screen sharing was stopped by the system.";
 "Segundos de espera antes de comenzar la serie de capturas." = "Seconds to wait before starting the capture series.";
 "Segundos maximos en los que deben caer los clics para contar como una rafaga." = "Maximum seconds within which clicks must fall to count as a burst.";
 "Separacion en segundos entre las capturas de la serie." = "Seconds between captures in the series.";
 "Sin disparos" = "No triggers";
 "Sin eventos" = "No events";
+"Sin eventos registrados." = "No events recorded.";
 "Sin validar" = "Unverified";
 "Sin zona" = "No region";
 "Sin zona definida" = "No region defined";
@@ -125,7 +138,3 @@
 "Ultimo disparo" = "Last trigger";
 "Ultimo evento" = "Last event";
 "Zona" = "Region";
-"macOS exige dos permisos para escuchar clics y capturar la pantalla." = "macOS requires two permissions to listen for clicks and capture the screen.";
-"screencapture termino con codigo %d." = "screencapture exited with code %d.";
-"screencapture termino con codigo %d: %@" = "screencapture exited with code %d: %@";
-"Sin eventos registrados." = "No events recorded.";

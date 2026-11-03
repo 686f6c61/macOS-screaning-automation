@@ -21,7 +21,6 @@
 "Atras" = "Atras";
 "Bienvenido a Screening Automation" = "Bienvenido a Screening Automation";
 "Buscar actualizaciones..." = "Buscar actualizaciones...";
-"CGEventTap no disponible; usando AppKit global." = "CGEventTap no disponible; usando AppKit global.";
 "Cancelar" = "Cancelar";
 "Cancelar modo armado" = "Cancelar modo armado";
 "Captura de pantalla" = "Captura de pantalla";
@@ -32,6 +31,7 @@
 "Capturas: %lld" = "Capturas: %lld";
 "Carpeta" = "Carpeta";
 "Carpeta del disco donde se guardan las capturas." = "Carpeta del disco donde se guardan las capturas.";
+"CGEventTap no disponible; usando AppKit global." = "CGEventTap no disponible; usando AppKit global.";
 "Cinco clics rapidos (configurable) disparan una captura." = "Cinco clics rapidos (configurable) disparan una captura.";
 "Clic visto por %@ @ %d,%d" = "Clic visto por %@ @ %d,%d";
 "Clics" = "Clics";
@@ -50,6 +50,7 @@
 "Disparado" = "Disparado";
 "Disparo por %@" = "Disparo por %@";
 "Disparo por esquina" = "Disparo por esquina";
+"El codificador no admite el tamano de la zona." = "El codificador no admite el tamaño de la zona.";
 "Elige como quieres lanzar las capturas de la zona." = "Elige como quieres lanzar las capturas de la zona.";
 "Empezar" = "Empezar";
 "Escucha" = "Escucha";
@@ -57,9 +58,13 @@
 "Espera inicial y serie de capturas con intervalo fijo." = "Espera inicial y serie de capturas con intervalo fijo.";
 "Esquina" = "Esquina";
 "Esquina de la pantalla que activa la captura." = "Esquina de la pantalla que activa la captura.";
+"Falta el permiso de Grabacion de pantalla. Activalo en Ajustes y reinicia la app." = "Falta el permiso de Grabación de pantalla. Actívalo en Ajustes y reinicia la app.";
 "Formato" = "Formato";
 "Formato de archivo de las capturas: PNG sin perdidas, JPG mas ligero, PDF o TIFF." = "Formato de archivo de las capturas: PNG sin perdidas, JPG mas ligero, PDF o TIFF.";
 "Fuera" = "Fuera";
+"Grabacion cancelada." = "Grabación cancelada.";
+"Grabacion detenida al llegar a %@." = "Grabación detenida al llegar a %@.";
+"Grabacion interrumpida: %@" = "Grabación interrumpida: %@";
 "Grabando %@" = "Grabando %@";
 "Grabando video de la zona" = "Grabando video de la zona";
 "Grabar video de la zona" = "Grabar video de la zona";
@@ -70,8 +75,10 @@
 "La captura ha superado el tiempo de espera." = "La captura ha superado el tiempo de espera.";
 "La captura no produjo una imagen valida." = "La captura no produjo una imagen valida.";
 "La grabacion no se pudo guardar." = "La grabacion no se pudo guardar.";
+"La grabacion no se pudo guardar: %@" = "La grabación no se pudo guardar: %@";
 "La zona no esta en ninguna pantalla activa." = "La zona no esta en ninguna pantalla activa.";
 "Listo" = "Listo";
+"macOS exige dos permisos para escuchar clics y capturar la pantalla." = "macOS exige dos permisos para escuchar clics y capturar la pantalla.";
 "Mantener el puntero en la esquina elegida durante unos segundos." = "Mantener el puntero en la esquina elegida durante unos segundos.";
 "Menu SA" = "Menu SA";
 "Modo armado" = "Modo armado";
@@ -84,6 +91,8 @@
 "No se encontro la pantalla de la zona." = "No se encontro la pantalla de la zona.";
 "No se pudo crear imagen de la zona." = "No se pudo crear imagen de la zona.";
 "No se pudo preparar el archivo de video." = "No se pudo preparar el archivo de video.";
+"No se pudo preparar el archivo de video: %@" = "No se pudo preparar el archivo de vídeo: %@";
+"No se recibio ningun fotograma de la pantalla." = "No se recibió ningún fotograma de la pantalla.";
 "Numero de clics necesario para disparar una captura dentro de la ventana de tiempo." = "Numero de clics necesario para disparar una captura dentro de la ventana de tiempo.";
 "Numero total de capturas de la serie." = "Numero total de capturas de la serie.";
 "OK" = "OK";
@@ -109,11 +118,15 @@
 "Region fija de la pantalla que se captura en cada disparo. Redefinela con Definir." = "Region fija de la pantalla que se captura en cada disparo. Redefinela con Definir.";
 "Salida" = "Salida";
 "Salir" = "Salir";
+"screencapture termino con codigo %d." = "screencapture termino con codigo %d.";
+"screencapture termino con codigo %d: %@" = "screencapture termino con codigo %d: %@";
+"Se dejo de compartir la pantalla desde el sistema." = "Se dejó de compartir la pantalla desde el sistema.";
 "Segundos de espera antes de comenzar la serie de capturas." = "Segundos de espera antes de comenzar la serie de capturas.";
 "Segundos maximos en los que deben caer los clics para contar como una rafaga." = "Segundos maximos en los que deben caer los clics para contar como una rafaga.";
 "Separacion en segundos entre las capturas de la serie." = "Separacion en segundos entre las capturas de la serie.";
 "Sin disparos" = "Sin disparos";
 "Sin eventos" = "Sin eventos";
+"Sin eventos registrados." = "Sin eventos registrados.";
 "Sin validar" = "Sin validar";
 "Sin zona" = "Sin zona";
 "Sin zona definida" = "Sin zona definida";
@@ -125,7 +138,3 @@
 "Ultimo disparo" = "Ultimo disparo";
 "Ultimo evento" = "Ultimo evento";
 "Zona" = "Zona";
-"macOS exige dos permisos para escuchar clics y capturar la pantalla." = "macOS exige dos permisos para escuchar clics y capturar la pantalla.";
-"screencapture termino con codigo %d." = "screencapture termino con codigo %d.";
-"screencapture termino con codigo %d: %@" = "screencapture termino con codigo %d: %@";
-"Sin eventos registrados." = "Sin eventos registrados.";

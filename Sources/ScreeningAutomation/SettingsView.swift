@@ -287,10 +287,7 @@ struct SettingsView: View {
                     title: "Monitorizacion de entrada",
                     allowed: inputMonitoringReady,
                     requestTitle: "Solicitar",
-                    requestAction: {
-                        controller.eventMonitor.requestInputMonitoringPermission()
-                        permissions.refresh()
-                    },
+                    requestAction: controller.requestInputMonitoring,
                     settingsAction: controller.eventMonitor.openInputMonitoringSettings,
                     helpText: HelpText.inputMonitoring
                 )
@@ -298,12 +295,7 @@ struct SettingsView: View {
                     title: "Captura de pantalla",
                     allowed: captureReady,
                     requestTitle: "Solicitar",
-                    requestAction: {
-                        if !ScreenCapturePermission.request() {
-                            ScreenCapturePermission.openSettings()
-                        }
-                        permissions.refresh()
-                    },
+                    requestAction: controller.requestScreenCapture,
                     settingsAction: ScreenCapturePermission.openSettings,
                     helpText: HelpText.screenCapture
                 )
