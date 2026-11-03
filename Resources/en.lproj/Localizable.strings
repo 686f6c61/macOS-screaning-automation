@@ -10,6 +10,7 @@
 "Actualizaciones" = "Updates";
 "Actualizar" = "Refresh";
 "Ajustes" = "Settings";
+"Ajustes…" = "Settings…";
 "Armado:" = "Armed:";
 "Armado: captura %d/%d" = "Armed: capture %d/%d";
 "Armado: error %d/%d" = "Armed: error %d/%d";
@@ -114,6 +115,7 @@
 "Permisos" = "Permissions";
 "Permisos OK" = "Permissions OK";
 "Permisos pendientes" = "Permissions pending";
+"Permisos pendientes: revisa Ajustes" = "Permissions pending: check Settings";
 "Podras cambiarla en cualquier momento desde Ajustes o el menu SA." = "You can change it anytime from Settings or the SA menu.";
 "Preparando grabacion..." = "Preparing recording...";
 "Probar activador" = "Test trigger";
@@ -141,6 +143,7 @@
 "Sin validar" = "Unverified";
 "Sin zona" = "No region";
 "Sin zona definida" = "No region defined";
+"Sin zona: usa Definir zona" = "No region: use Define region";
 "Solicitar" = "Request";
 "Tiempo minimo entre dos disparos automaticos; evita capturas encadenadas." = "Minimum time between two automatic triggers; avoids chained captures.";
 "Tiempo que el puntero debe permanecer en la esquina antes de disparar." = "Time the pointer must stay in the corner before triggering.";

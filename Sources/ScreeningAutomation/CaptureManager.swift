@@ -23,7 +23,12 @@ final class CaptureManager: ObservableObject {
 
     @Published private(set) var isCapturing = false
     @Published private(set) var lastCaptureURL: URL?
-    @Published private(set) var lastMessage = L10n.t("Listo")
+    @Published private(set) var lastMessage = L10n.t("Listo") {
+        didSet { lastMessageDate = Date() }
+    }
+    /// Cuándo cambió `lastMessage`; el menú muestra el mensaje más reciente
+    /// entre captura y vídeo.
+    private(set) var lastMessageDate = Date.distantPast
     @Published private(set) var lastCaptureSucceeded = false
     @Published private(set) var armedCaptureActive = false
     @Published private(set) var armedCaptureMessage = L10n.t("Modo armado inactivo")
