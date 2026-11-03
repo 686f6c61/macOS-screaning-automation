@@ -483,7 +483,7 @@ final class VideoRecorder: ObservableObject {
     private var pendingInterruption: (id: UUID, message: String)?
     /// Mensaje mostrado al vencer el tope de cierre. Un resultado tardío solo
     /// lo corrige si sigue siendo el visible, para no tapar un aviso posterior.
-    private var timeoutMessage: String?
+    private var timeoutMessage: (fileURL: URL, message: String)?
     private let maxDuration: TimeInterval
     private var timer: Timer?
     private var state: State = .idle {
@@ -646,7 +646,7 @@ final class VideoRecorder: ObservableObject {
             DiagnosticLog.write("video recording finalize failed file=\(fileName) error=\(error.localizedDescription)")
             fail(L10n.format("La grabacion puede estar incompleta (%@): %@", fileName, reason ?? error.localizedDescription))
             if error == .writerFailed("timeout") {
-                timeoutMessage = lastMessage
+                timeoutMessage = (active.handle.fileURL, lastMessage)
             }
             return false
         }
@@ -677,8 +677,12 @@ final class VideoRecorder: ObservableObject {
     /// Corrige el resultado mostrado cuando el cierre real llega después del
     /// tope: borra un archivo inútil o confirma que se guardó bien.
     private func applyLateFinalization(_ result: Result<Void, VideoWriterError>, fileURL: URL) {
-        let stillShowingTimeout = timeoutMessage != nil && lastMessage == timeoutMessage
-        timeoutMessage = nil
+        // Solo cuenta el aviso de tope de esta misma grabación.
+        var stillShowingTimeout = false
+        if let timeout = timeoutMessage, timeout.fileURL == fileURL {
+            stillShowingTimeout = lastMessage == timeout.message
+            timeoutMessage = nil
+        }
         switch result {
         case .success:
             CaptureFiles.harden(at: fileURL)
