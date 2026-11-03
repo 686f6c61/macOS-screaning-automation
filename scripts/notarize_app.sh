@@ -33,10 +33,15 @@ if [[ -n "${KEYCHAIN_PATH:-}" && -f "$KEYCHAIN_PATH" ]]; then
   SUBMIT_ARGS=(--keychain-profile "$NOTARY_PROFILE" --keychain "$KEYCHAIN_PATH")
 fi
 SUBMIT_JSON="$WORK_DIR/submit.json"
-xcrun notarytool submit "$NOTARY_ARCHIVE" "${SUBMIT_ARGS[@]}" \
+# notarytool sale con código distinto de cero en estados como Invalid o en un
+# timeout; se captura para poder mostrar el estado, el ID y el informe.
+if ! xcrun notarytool submit "$NOTARY_ARCHIVE" "${SUBMIT_ARGS[@]}" \
   --wait \
   --timeout 20m \
-  --output-format json > "$SUBMIT_JSON"
+  --output-format json > "$SUBMIT_JSON"; then
+  echo "warning: notarytool submit terminó con error" >&2
+  cat "$SUBMIT_JSON" >&2 || true
+fi
 STATUS="$(/usr/bin/plutil -extract status raw -o - "$SUBMIT_JSON" 2>/dev/null || echo unknown)"
 if [[ "$STATUS" != "Accepted" ]]; then
   SUBMISSION_ID="$(/usr/bin/plutil -extract id raw -o - "$SUBMIT_JSON" 2>/dev/null || true)"

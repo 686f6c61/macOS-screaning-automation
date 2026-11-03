@@ -242,9 +242,10 @@ jobs:
             codesign -d --verbose=4 "$APP" 2>&1 | grep -E 'flags=.*runtime'
             # El requisito designado debe seguir apuntando al mismo certificado
             # raíz; si no, los usuarios perderían los permisos de TCC.
-            if ! codesign -d -r- "$APP" 2>&1 | grep -qi "certificate root = H\"${RELEASE_CERT_ROOT_SHA1}\""; then
+            REQUIREMENT="$(codesign -d -r- "$APP" 2>&1)"
+            if ! grep -qi "certificate root = H\"${RELEASE_CERT_ROOT_SHA1}\"" <<<"$REQUIREMENT"; then
               echo "::error::Designated requirement no longer matches RELEASE_CERT_ROOT_SHA1; TCC permissions would reset for every user"
-              codesign -d -r- "$APP" 2>&1
+              echo "$REQUIREMENT"
               exit 1
             fi
           fi
@@ -255,9 +256,13 @@ jobs:
             echo "::error::Could not compute archive or cask SHA-256"
             exit 1
           fi
-          test "$EXPECTED_SHA" = "$CASK_SHA"
+          if [[ "$EXPECTED_SHA" != "$CASK_SHA" ]]; then
+            echo "::error::Cask SHA-256 $CASK_SHA does not match archive $EXPECTED_SHA"
+            exit 1
+          fi
 
       - name: Publish immutable-ready draft release
+        id: publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -272,17 +277,26 @@ jobs:
             --draft \
             --title "Screening Automation ${VERSION}" \
             --notes-file "$NOTES"
+          # A partir de aquí, si algo falla, el borrador es de esta ejecución.
+          echo "created=true" >> "$GITHUB_OUTPUT"
           gh release edit "$GITHUB_REF_NAME" --draft=false
 
+      # Solo se borra un borrador creado por esta misma ejecución, nunca uno
+      # preparado a mano o dejado por otra ejecución.
       - name: Delete draft release left by a failed publish
-        if: failure()
+        if: failure() && steps.publish.outputs.created == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          IS_DRAFT="$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft 2>/dev/null || echo missing)"
+          if ! IS_DRAFT="$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft 2>&1)"; then
+            echo "::warning::Could not inspect release $GITHUB_REF_NAME: $IS_DRAFT"
+            exit 0
+          fi
           if [[ "$IS_DRAFT" == "true" ]]; then
             gh release delete "$GITHUB_REF_NAME" --yes
             echo "::notice::Deleted draft release $GITHUB_REF_NAME so the tag can be retried"
+          else
+            echo "::notice::Release $GITHUB_REF_NAME is already published; nothing to delete"
           fi
 
       - name: Remove temporary keychain
