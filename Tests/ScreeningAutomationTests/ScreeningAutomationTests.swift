@@ -538,6 +538,38 @@ final class VideoWriterSessionTests: XCTestCase {
         }
     }
 
+    /// Regresión: con `movieFragmentInterval`, el escritor fallaba a los pocos
+    /// segundos con fotogramas como los de ScreenCaptureKit: tamaño Retina,
+    /// marcas de tiempo del reloj del sistema y llegada en tiempo real. Por eso
+    /// el test tarda unos 5 s; con fotogramas enviados de golpe no se reproduce.
+    func testRecordingWithHostClockTimestamps() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ScreeningAutomationTests-\(UUID().uuidString).mp4")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let failures = LockedBox<[String]>([])
+        let session = try VideoWriterSession(url: url, pixelWidth: 2590, pixelHeight: 1602) { reason in
+            failures.set(failures.get() + [reason])
+        }
+        for _ in 0..<150 {
+            let timestamp = CMClockGetTime(CMClockGetHostTimeClock())
+            let buffer = try SyntheticFrames.sampleBuffer(
+                width: 2590,
+                height: 1602,
+                presentationTimeStamp: timestamp,
+                pixelFormat: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+            )
+            session.queue.sync { session.append(buffer) }
+            try await Task.sleep(for: .milliseconds(33))
+        }
+
+        let result = await withCheckedContinuation { continuation in
+            session.finish { continuation.resume(returning: $0) }
+        }
+
+        XCTAssertEqual(failures.get(), [])
+        XCTAssertNoThrow(try result.get())
+    }
+
     func testFinishWithoutFramesReportsNoFrames() async throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("ScreeningAutomationTests-\(UUID().uuidString).mp4")
@@ -563,13 +595,26 @@ final class VideoWriterSessionTests: XCTestCase {
 /// Genera `CMSampleBuffer` de vídeo sin depender de ScreenCaptureKit.
 private enum SyntheticFrames {
     static func sampleBuffer(width: Int, height: Int, frameIndex: Int) throws -> CMSampleBuffer {
+        try sampleBuffer(
+            width: width,
+            height: height,
+            presentationTimeStamp: CMTime(value: CMTimeValue(frameIndex), timescale: 30)
+        )
+    }
+
+    static func sampleBuffer(
+        width: Int,
+        height: Int,
+        presentationTimeStamp: CMTime,
+        pixelFormat: OSType = kCVPixelFormatType_32BGRA
+    ) throws -> CMSampleBuffer {
         var pixelBuffer: CVPixelBuffer?
         let attributes = [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary
         guard CVPixelBufferCreate(
             kCFAllocatorDefault,
             width,
             height,
-            kCVPixelFormatType_32BGRA,
+            pixelFormat,
             attributes,
             &pixelBuffer
         ) == kCVReturnSuccess, let pixelBuffer else {
@@ -588,7 +633,7 @@ private enum SyntheticFrames {
 
         var timing = CMSampleTimingInfo(
             duration: CMTime(value: 1, timescale: 30),
-            presentationTimeStamp: CMTime(value: CMTimeValue(frameIndex), timescale: 30),
+            presentationTimeStamp: presentationTimeStamp,
             decodeTimeStamp: .invalid
         )
         var sampleBuffer: CMSampleBuffer?
@@ -688,7 +733,9 @@ final class VideoRecorderStateTests: XCTestCase {
         XCTAssertFalse(recorder.isBusy)
     }
 
-    func testFinalizeFailureKeepsFileAndReportsIt() async throws {
+    /// Un MP4 que no se pudo cerrar no se puede reproducir: se descarta y se
+    /// explica el motivo.
+    func testFinalizeFailureReportsReason() async throws {
         let source = FakeVideoSource()
         source.handle.finishResult = .failure(.writerFailed("disco lleno"))
         let recorder = VideoRecorder(settings: try makeSettings(), source: source)
@@ -699,7 +746,7 @@ final class VideoRecorderStateTests: XCTestCase {
         let saved = await recorder.stop()
 
         XCTAssertFalse(saved)
-        XCTAssertTrue(recorder.lastMessage.contains(source.handle.fileURL.lastPathComponent))
+        XCTAssertTrue(recorder.lastMessage.contains("disco lleno"))
     }
 
     private func makeSettings() throws -> AppSettings {
