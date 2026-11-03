@@ -21,6 +21,9 @@
 - Las regiones legítimamente negras (un terminal, un vídeo oscuro) ya no se
   rechazan cuando el permiso está concedido.
 - Esc cancela la selección de zona.
+- «Pausar activadores» también detiene los clics recibidos por el monitor
+  global de AppKit; antes podían disparar capturas con los activadores en
+  pausa.
 - Si los ajustes guardados no se pueden leer, se conserva una copia y se avisa.
 - La anonimización del log cubre rutas con espacios y saltos de línea.
 

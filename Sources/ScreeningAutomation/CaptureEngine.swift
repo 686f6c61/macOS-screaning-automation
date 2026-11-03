@@ -29,7 +29,6 @@ enum CaptureError: Error, LocalizedError {
     case processFailed(Int32, String)
     case processTimedOut
     case invalidImage
-    case coreGraphicsFailed
     /// TCC deniega Grabación de pantalla. No se recurre a `screencapture`
     /// porque sin permiso guarda solo el fondo de escritorio.
     case screenRecordingDenied
@@ -54,8 +53,6 @@ enum CaptureError: Error, LocalizedError {
             return L10n.t("La captura ha superado el tiempo de espera.")
         case .invalidImage:
             return L10n.t("La captura no produjo una imagen valida.")
-        case .coreGraphicsFailed:
-            return L10n.t("No se pudo crear imagen de la zona.")
         }
     }
 }
@@ -153,6 +150,7 @@ enum CaptureEngine {
             }
         }
         guard let image else {
+            DiagnosticLog.write("screen capture kit returned no image")
             return .unavailable
         }
         guard !imageLooksLikeMissingPermission(image) else {

@@ -25,11 +25,17 @@ STAGED_APP="$STAGING/$APP_BUNDLE"
 # y solo se elimina cuando la nueva ya está en su sitio.
 PREVIOUS_APP=""
 if [[ -d "$APP_DST" ]]; then
-  PREVIOUS_APP="$(mktemp -d /Applications/.screening-automation-previous.XXXXXX)/$APP_BUNDLE"
-  mv "$APP_DST" "$PREVIOUS_APP"
+  PREVIOUS_DIR="$(mktemp -d /Applications/.screening-automation-previous.XXXXXX)"
+  PREVIOUS_APP="$PREVIOUS_DIR/$APP_BUNDLE"
+  if ! mv "$APP_DST" "$PREVIOUS_APP"; then
+    rmdir "$PREVIOUS_DIR"
+    echo "error: no se pudo apartar la app instalada en $APP_DST" >&2
+    exit 1
+  fi
 fi
 if ! mv "$STAGED_APP" "$APP_DST"; then
   if [[ -n "$PREVIOUS_APP" ]] && mv "$PREVIOUS_APP" "$APP_DST"; then
+    rmdir "$(dirname "$PREVIOUS_APP")"
     echo "error: no se pudo instalar $APP_DST; se ha restaurado la versión anterior" >&2
   else
     echo "error: no se pudo instalar $APP_DST; la versión anterior está en $PREVIOUS_APP" >&2

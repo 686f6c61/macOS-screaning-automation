@@ -1,11 +1,12 @@
 // Activadores de captura: ráfaga de clics y puntero mantenido en una esquina.
 //
-// Los clics se escuchan por tres vías a la vez, de más a menos fiable:
+// Los clics se escuchan por dos vías a la vez:
 // 1. `CGEventTap` pasivo (HID o sesión), que requiere Monitorización de entrada.
 // 2. Monitor global de AppKit (`NSEvent.addGlobalMonitorForEvents`).
-// 3. Para la esquina, sondeo de la posición del puntero cada 0,1 s.
-// Un mismo clic puede llegar por las dos primeras vías; `ClickBurstDetector`
-// descarta como duplicado lo que llega con menos de 45 ms de diferencia.
+// Un mismo clic puede llegar por las dos; `ClickBurstDetector` descarta como
+// duplicado lo que llega con menos de 45 ms de diferencia.
+//
+// La esquina se detecta aparte, sondeando la posición del puntero cada 0,1 s.
 
 import AppKit
 import ApplicationServices
@@ -152,6 +153,7 @@ struct CornerHoldDetector {
 /// cumple un activador. Publica su estado para la sección de diagnóstico.
 @MainActor
 final class EventTapMonitor: ObservableObject {
+    private static let appKitFallbackMessage = L10n.t("CGEventTap no disponible; usando AppKit global.")
     /// Intervalo del sondeo de la esquina.
     private static let cornerPollInterval: TimeInterval = 0.1
     /// Intervalo de reintento del event tap mientras falta el permiso.
@@ -212,7 +214,7 @@ final class EventTapMonitor: ObservableObject {
         let mask = eventMask(.leftMouseDown)
         guard let createdTap = createEventTap(location: .cghidEventTap, mask: mask)
             ?? createEventTap(location: .cgSessionEventTap, mask: mask) else {
-            lastStartError = L10n.t("CGEventTap no disponible; usando AppKit global.")
+            lastStartError = Self.appKitFallbackMessage
             DiagnosticLog.write("all event tap create attempts failed; using AppKit global only")
             requestInputMonitoringPermission()
             refreshState()
@@ -262,6 +264,10 @@ final class EventTapMonitor: ObservableObject {
         ].compactMap { $0 }
         isRunning = !backends.isEmpty
         backendDescription = backends.isEmpty ? L10n.t("Inactivo") : backends.joined(separator: " + ")
+        if isRunning, eventTap == nil, globalMouseMonitor == nil {
+            // Solo queda el sondeo de esquina: los clics no se detectan.
+            lastStartError = L10n.t("No se pueden escuchar clics; solo funciona la esquina.")
+        }
         updateClickProgress()
         updateCornerHoldTick()
     }
@@ -329,7 +335,7 @@ final class EventTapMonitor: ObservableObject {
         }
         DiagnosticLog.write("event tap could not be re-enabled type=\(type.rawValue); falling back to AppKit global")
         releaseEventTap()
-        lastStartError = L10n.t("CGEventTap no disponible; usando AppKit global.")
+        lastStartError = Self.appKitFallbackMessage
         refreshState()
         schedulePermissionRetry()
     }

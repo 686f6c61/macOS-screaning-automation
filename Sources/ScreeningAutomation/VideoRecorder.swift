@@ -588,6 +588,7 @@ final class VideoRecorder: ObservableObject {
                 }
             }
         } catch {
+            pendingInterruption = nil
             guard isCurrent(id) else {
                 return
             }
@@ -597,6 +598,7 @@ final class VideoRecorder: ObservableObject {
         }
 
         guard isCurrent(id) else {
+            pendingInterruption = nil
             await handle.discard()
             DiagnosticLog.write("video capture discarded after cancelled start")
             return
@@ -653,8 +655,9 @@ final class VideoRecorder: ObservableObject {
                 if !resumed.exchange(true) {
                     continuation.resume(returning: result)
                 } else {
-                    // Llegó después del tope: el usuario ya vio el aviso.
+                    // Llegó después del tope: se corrige lo que se dijo al usuario.
                     DiagnosticLog.write("video finalize late result=\(result)")
+                    self.applyLateFinalization(result, fileURL: handle.fileURL)
                 }
             }
             DispatchQueue.global().asyncAfter(deadline: .now() + Self.finalizeTimeout) {
@@ -662,6 +665,22 @@ final class VideoRecorder: ObservableObject {
                     continuation.resume(returning: .failure(.writerFailed("timeout")))
                 }
             }
+        }
+    }
+
+    /// Corrige el resultado mostrado cuando el cierre real llega después del
+    /// tope: borra un archivo inútil o confirma que se guardó bien.
+    private func applyLateFinalization(_ result: Result<Void, VideoWriterError>, fileURL: URL) {
+        switch result {
+        case .success:
+            CaptureFiles.harden(at: fileURL)
+            if case .idle = state {
+                lastMessage = L10n.format("Guardado: %@", fileURL.lastPathComponent)
+            }
+        case .failure(let error) where error.leavesNoFile:
+            CaptureFiles.remove(at: fileURL)
+        case .failure:
+            break
         }
     }
 

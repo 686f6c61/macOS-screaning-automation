@@ -157,7 +157,8 @@ struct SettingsView: View {
                     value: $settings.clickWindowSeconds,
                     range: AppSettings.clickWindowRange,
                     step: 0.1,
-                    helpText: HelpText.clickWindow
+                    helpText: HelpText.clickWindow,
+                    leadingHelpText: HelpText.clickCount
                 ) {
                     Stepper(
                         "Clics: \(settings.clickCount)",
@@ -187,7 +188,8 @@ struct SettingsView: View {
                     value: $settings.hoverGestureTimeoutSeconds,
                     range: AppSettings.hoverGestureTimeoutRange,
                     step: 0.1,
-                    helpText: HelpText.hoverTimeout
+                    helpText: HelpText.hoverTimeout,
+                    leadingHelpText: HelpText.hoverCorner
                 ) {
                     Picker("Esquina", selection: $settings.hoverGestureCorner) {
                         ForEach(HoverGestureCorner.allCases) { corner in

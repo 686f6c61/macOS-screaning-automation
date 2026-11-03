@@ -95,10 +95,10 @@
 "No se encontro la pantalla de la zona." = "Could not find the display for the region.";
 "No se pudieron leer los ajustes guardados; se han restaurado los valores por defecto." = "Saved settings could not be read; defaults have been restored.";
 "No se pudo confirmar el permiso de Grabacion de pantalla; vuelve a intentarlo." = "Screen Recording permission could not be confirmed; please try again.";
-"No se pudo crear imagen de la zona." = "Could not create an image of the region.";
 "No se pudo iniciar la escritura del video: %@" = "Could not start writing the video: %@";
 "No se pudo preparar el archivo de video." = "Could not prepare the video file.";
 "No se pudo preparar el archivo de video: %@" = "Could not prepare the video file: %@";
+"No se pueden escuchar clics; solo funciona la esquina." = "Clicks cannot be detected; only the corner trigger works.";
 "No se recibio ningun fotograma de la pantalla." = "No frames were received from the screen.";
 "Numero de clics necesario para disparar una captura dentro de la ventana de tiempo." = "Number of clicks needed to trigger a capture within the time window.";
 "Numero total de capturas de la serie." = "Total number of captures in the series.";
