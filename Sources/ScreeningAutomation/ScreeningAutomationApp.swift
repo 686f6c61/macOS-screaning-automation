@@ -33,9 +33,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard videoRecorder.isRecording else {
             return .terminateNow
         }
+        // Se espera a que el MP4 quede cerrado. `stop()` tiene su propio tope
+        // de tiempo, así que un `finishWriting` colgado no bloquea la salida.
         Task { @MainActor in
-            videoRecorder.stop()
-            try? await Task.sleep(for: .seconds(2))
+            await videoRecorder.stop()
             sender.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
@@ -82,6 +83,26 @@ final class AppController: NSObject, ObservableObject, NSWindowDelegate {
 
     func captureNow(source: String) {
         captureManager.captureNow(source: source)
+    }
+
+    /// Pide Monitorización de entrada (aviso del sistema la primera vez) y
+    /// refresca el estado.
+    func requestInputMonitoring() {
+        eventMonitor.requestInputMonitoringPermission()
+        permissions.refresh()
+    }
+
+    /// Pide Grabación de pantalla. Si TCC ya tiene una decisión, el sistema no
+    /// muestra nada y se abre el panel de Ajustes. Al ser una acción explícita
+    /// del usuario, también se verifica el acceso real con ScreenCaptureKit.
+    func requestScreenCapture() {
+        if !ScreenCapturePermission.request() {
+            ScreenCapturePermission.openSettings()
+        }
+        permissions.refresh()
+        if !permissions.screenCaptureAllowed {
+            permissions.verifyScreenCaptureAccess()
+        }
     }
 
     func defineRegion() {
@@ -279,6 +300,8 @@ private struct MenuContent: View {
                 L10n.format("Grabando %@", videoRecorder.elapsedDescription),
                 systemImage: "record.circle"
             )
+        } else if !videoRecorder.lastMessage.isEmpty {
+            Text(videoRecorder.lastMessage)
         }
 
         Divider()

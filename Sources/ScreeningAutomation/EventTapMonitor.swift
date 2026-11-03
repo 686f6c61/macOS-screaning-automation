@@ -444,29 +444,7 @@ final class EventTapMonitor: ObservableObject {
         guard let event = CGEvent(source: nil) else {
             return NSEvent.mouseLocation
         }
-        return Self.appKitLocation(fromQuartzLocation: event.location)
-    }
-
-    private static func appKitLocation(fromQuartzLocation location: CGPoint) -> CGPoint {
-        for screen in NSScreen.screens {
-            guard let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
-                continue
-            }
-
-            let displayID = CGDirectDisplayID(screenNumber.uint32Value)
-            let quartzBounds = CGDisplayBounds(displayID)
-            guard quartzBounds.contains(location) else {
-                continue
-            }
-
-            return CGPoint(
-                x: location.x,
-                y: screen.frame.maxY - (location.y - quartzBounds.minY)
-            )
-        }
-
-        let virtualMaxY = NSScreen.screens.map(\.frame.maxY).max() ?? NSEvent.mouseLocation.y
-        return CGPoint(x: location.x, y: virtualMaxY - location.y)
+        return ScreenGeometry.appKitLocation(fromQuartz: event.location)
     }
 
     private func beginActivatorActivity() {
@@ -496,31 +474,6 @@ final class EventTapMonitor: ObservableObject {
     }
 
     private func isInCorner(_ point: CGPoint, corner: HoverGestureCorner) -> Bool {
-        let frames = NSScreen.screens.map(\.frame)
-        guard let minX = frames.map(\.minX).min(),
-              let maxX = frames.map(\.maxX).max(),
-              let minY = frames.map(\.minY).min(),
-              let maxY = frames.map(\.maxY).max() else {
-            return false
-        }
-
-        let size: CGFloat = 72
-        switch corner {
-        case .topLeft:
-            return point.x <= minX + size && point.y >= maxY - size
-        case .topRight:
-            return point.x >= maxX - size && point.y >= maxY - size
-        case .bottomLeft:
-            return point.x <= minX + size && point.y <= minY + size
-        case .bottomRight:
-            return point.x >= maxX - size && point.y <= minY + size
-        }
+        ScreenGeometry.isInCorner(point, corner: corner, screens: NSScreen.screens.map(\.frame))
     }
-}
-
-func openPrivacyPane(anchor: String) {
-    guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)") else {
-        return
-    }
-    NSWorkspace.shared.open(url)
 }

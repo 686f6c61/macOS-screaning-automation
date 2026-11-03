@@ -1,4 +1,6 @@
 import CoreGraphics
+import CoreMedia
+import CoreVideo
 import Foundation
 import XCTest
 @testable import ScreeningAutomation
@@ -9,7 +11,7 @@ final class CaptureRegionTests: XCTestCase {
         let region = CaptureRegion.fromSelection(
             localRect: CGRect(x: 100, y: 200, width: 500, height: 300),
             screenFrame: CGRect(x: -1920, y: 0, width: 1920, height: 1080),
-            virtualMaxY: 1200,
+            primaryScreenMaxY: 1200,
             displayName: "External",
             createdAt: createdAt
         )
@@ -26,7 +28,7 @@ final class CaptureRegionTests: XCTestCase {
         let region = CaptureRegion.fromSelection(
             localRect: CGRect(x: 1.6, y: 2.4, width: 0.2, height: 0.4),
             screenFrame: CGRect(x: 0, y: 0, width: 100, height: 100),
-            virtualMaxY: 100,
+            primaryScreenMaxY: 100,
             displayName: "Test"
         )
 
@@ -40,7 +42,7 @@ final class CaptureRegionTests: XCTestCase {
         let region = CaptureRegion.fromSelection(
             localRect: CGRect(x: 40, y: 100, width: 600, height: 250),
             screenFrame: CGRect(x: 0, y: -1080, width: 1920, height: 1080),
-            virtualMaxY: 1080,
+            primaryScreenMaxY: 1080,
             displayName: "Below"
         )
 
@@ -48,6 +50,32 @@ final class CaptureRegionTests: XCTestCase {
         XCTAssertEqual(region.y, 1810)
         XCTAssertEqual(region.width, 600)
         XCTAssertEqual(region.height, 250)
+    }
+
+    /// Monitor de 2560x1440 colocado encima de un portátil de 1920x1080. En
+    /// Quartz, todo lo que está por encima de la pantalla principal tiene Y
+    /// negativa; tomar el `maxY` de todas las pantallas daba Y = 100.
+    func testConvertsSelectionOnDisplayAbovePrimaryScreen() {
+        let region = CaptureRegion.fromSelection(
+            localRect: CGRect(x: 0, y: 1240, width: 300, height: 100),
+            screenFrame: CGRect(x: 0, y: 1080, width: 2560, height: 1440),
+            primaryScreenMaxY: 1080,
+            displayName: "Above"
+        )
+
+        XCTAssertEqual(region.y, -1340)
+    }
+
+    func testCornerDetectionUsesEachPhysicalScreen() {
+        // Pantalla secundaria más baja y desplazada: la esquina superior derecha
+        // del rectángulo envolvente (3840, 1080) no existe en ninguna pantalla.
+        let screens = [
+            CGRect(x: 0, y: 0, width: 1920, height: 1080),
+            CGRect(x: 1920, y: -400, width: 1920, height: 1080)
+        ]
+        XCTAssertTrue(ScreenGeometry.isInCorner(CGPoint(x: 3830, y: 670), corner: .topRight, screens: screens))
+        XCTAssertTrue(ScreenGeometry.isInCorner(CGPoint(x: 1910, y: 1070), corner: .topRight, screens: screens))
+        XCTAssertFalse(ScreenGeometry.isInCorner(CGPoint(x: 960, y: 540), corner: .topRight, screens: screens))
     }
 }
 
@@ -194,17 +222,17 @@ final class PermissionStatusTests: XCTestCase {
         let ready = PermissionStatus(
             inputMonitoringProbe: { true },
             screenCapturePreflightProbe: { true },
-            screenCaptureAccessProbe: { true }
+            screenCaptureAccessProbe: { .granted }
         )
         let missingInput = PermissionStatus(
             inputMonitoringProbe: { false },
             screenCapturePreflightProbe: { true },
-            screenCaptureAccessProbe: { true }
+            screenCaptureAccessProbe: { .granted }
         )
         let missingCapture = PermissionStatus(
             inputMonitoringProbe: { true },
             screenCapturePreflightProbe: { false },
-            screenCaptureAccessProbe: { false }
+            screenCaptureAccessProbe: { .denied }
         )
 
         XCTAssertTrue(ready.allAllowed)
@@ -347,6 +375,97 @@ final class VideoRegionResolverTests: XCTestCase {
     }
 }
 
+final class VideoWriterSessionTests: XCTestCase {
+    /// Regresión de 96013dd: un escritor recién creado está en `.unknown` y
+    /// la sesión debe arrancarlo con el primer fotograma, no descartarlo.
+    func testWritesPlayableFileFromSyntheticFrames() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ScreeningAutomationTests-\(UUID().uuidString).mp4")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let session = try VideoWriterSession(url: url, pixelWidth: 64, pixelHeight: 64)
+        for index in 0..<10 {
+            let buffer = try SyntheticFrames.sampleBuffer(width: 64, height: 64, frameIndex: index)
+            session.queue.sync { session.append(buffer) }
+        }
+
+        let result = await withCheckedContinuation { continuation in
+            session.finish { continuation.resume(returning: $0) }
+        }
+
+        XCTAssertNoThrow(try result.get())
+        let size = try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber
+        XCTAssertGreaterThan(size?.intValue ?? 0, 0)
+    }
+
+    func testFinishWithoutFramesReportsNoFrames() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ScreeningAutomationTests-\(UUID().uuidString).mp4")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let session = try VideoWriterSession(url: url, pixelWidth: 64, pixelHeight: 64)
+        let result = await withCheckedContinuation { continuation in
+            session.finish { continuation.resume(returning: $0) }
+        }
+
+        XCTAssertThrowsError(try result.get()) { error in
+            XCTAssertEqual(error as? VideoWriterError, .noFrames)
+        }
+    }
+
+    func testEncoderSizeIsEvenAndCappedPreservingAspect() {
+        XCTAssertTrue(VideoWriterSession.encoderSize(width: 301, height: 101) == (300, 100))
+        XCTAssertTrue(VideoWriterSession.encoderSize(width: 1, height: 1) == (2, 2))
+        XCTAssertTrue(VideoWriterSession.encoderSize(width: 9000, height: 3000) == (4096, 1364))
+    }
+}
+
+/// Genera `CMSampleBuffer` de vídeo sin depender de ScreenCaptureKit.
+private enum SyntheticFrames {
+    static func sampleBuffer(width: Int, height: Int, frameIndex: Int) throws -> CMSampleBuffer {
+        var pixelBuffer: CVPixelBuffer?
+        let attributes = [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary
+        guard CVPixelBufferCreate(
+            kCFAllocatorDefault,
+            width,
+            height,
+            kCVPixelFormatType_32BGRA,
+            attributes,
+            &pixelBuffer
+        ) == kCVReturnSuccess, let pixelBuffer else {
+            throw TestError.imageCreationFailed
+        }
+
+        var formatDescription: CMVideoFormatDescription?
+        CMVideoFormatDescriptionCreateForImageBuffer(
+            allocator: kCFAllocatorDefault,
+            imageBuffer: pixelBuffer,
+            formatDescriptionOut: &formatDescription
+        )
+        guard let formatDescription else {
+            throw TestError.imageCreationFailed
+        }
+
+        var timing = CMSampleTimingInfo(
+            duration: CMTime(value: 1, timescale: 30),
+            presentationTimeStamp: CMTime(value: CMTimeValue(frameIndex), timescale: 30),
+            decodeTimeStamp: .invalid
+        )
+        var sampleBuffer: CMSampleBuffer?
+        CMSampleBufferCreateReadyWithImageBuffer(
+            allocator: kCFAllocatorDefault,
+            imageBuffer: pixelBuffer,
+            formatDescription: formatDescription,
+            sampleTiming: &timing,
+            sampleBufferOut: &sampleBuffer
+        )
+        guard let sampleBuffer else {
+            throw TestError.imageCreationFailed
+        }
+        return sampleBuffer
+    }
+}
+
 final class VideoTimeFormatTests: XCTestCase {
     func testFormatsMinutesAndSeconds() {
         XCTAssertEqual(VideoRecorder.format(elapsed: 0), "0:00")
@@ -356,14 +475,60 @@ final class VideoTimeFormatTests: XCTestCase {
     }
 }
 
-final class ProbeBackoffTests: XCTestCase {
-    func testProbeDelayGrowsAndCaps() {
-        XCTAssertEqual(PermissionStatus.probeDelay(afterAttempt: 0), 5)
-        XCTAssertEqual(PermissionStatus.probeDelay(afterAttempt: 1), 10)
-        XCTAssertEqual(PermissionStatus.probeDelay(afterAttempt: 2), 20)
-        XCTAssertEqual(PermissionStatus.probeDelay(afterAttempt: 3), 30)
-        XCTAssertEqual(PermissionStatus.probeDelay(afterAttempt: 99), 30)
-        XCTAssertEqual(PermissionStatus.probeDelay(afterAttempt: -5), 5)
+@MainActor
+final class PermissionAccessCheckTests: XCTestCase {
+    /// Cada consulta a ScreenCaptureKit sin permiso válido muestra un aviso del
+    /// sistema; el refresco periódico no debe volver a lanzarla.
+    func testAccessCheckRunsOnceAtLaunchAndNotOnRefresh() async {
+        let calls = LockedBox(0)
+        let status = PermissionStatus(
+            inputMonitoringProbe: { true },
+            screenCapturePreflightProbe: { false },
+            screenCaptureAccessProbe: {
+                calls.set(calls.get() + 1)
+                return .denied
+            }
+        )
+
+        status.startMonitoring()
+        defer { status.stopMonitoring() }
+        for _ in 0..<20 {
+            status.refresh()
+        }
+        try? await Task.sleep(for: .milliseconds(200))
+
+        XCTAssertEqual(calls.get(), 1)
+        XCTAssertEqual(status.accessCheckCount, 1)
+        XCTAssertFalse(status.screenCaptureAllowed)
+    }
+
+    func testGrantedAccessCheckOverridesStalePreflight() async {
+        let status = PermissionStatus(
+            inputMonitoringProbe: { true },
+            screenCapturePreflightProbe: { false },
+            screenCaptureAccessProbe: { .granted }
+        )
+
+        status.verifyScreenCaptureAccess()
+        let deadline = Date().addingTimeInterval(2)
+        while !status.screenCaptureAllowed, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+
+        XCTAssertTrue(status.screenCaptureAllowed)
+    }
+
+    func testUnknownAccessIsNotReportedAsGranted() async {
+        let status = PermissionStatus(
+            inputMonitoringProbe: { true },
+            screenCapturePreflightProbe: { false },
+            screenCaptureAccessProbe: { .unknown }
+        )
+
+        status.verifyScreenCaptureAccess()
+        try? await Task.sleep(for: .milliseconds(200))
+
+        XCTAssertFalse(status.screenCaptureAllowed)
     }
 }
 

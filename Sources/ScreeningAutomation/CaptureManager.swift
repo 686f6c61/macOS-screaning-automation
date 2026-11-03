@@ -17,9 +17,14 @@ enum CaptureError: Error, LocalizedError {
     case processTimedOut
     case invalidImage
     case coreGraphicsFailed
+    /// TCC deniega Grabación de pantalla. No se recurre a `screencapture`
+    /// porque sin permiso guarda solo el fondo de escritorio.
+    case screenRecordingDenied
 
     var errorDescription: String? {
         switch self {
+        case .screenRecordingDenied:
+            return L10n.t("Falta el permiso de Grabacion de pantalla. Activalo en Ajustes y reinicia la app.")
         case .missingRegion:
             return L10n.t("No hay una zona definida.")
         case .processFailed(let status, let details):
@@ -113,9 +118,13 @@ final class CaptureManager: ObservableObject {
                         self.lastCaptureSucceeded = false
                         self.lastMessage = error.localizedDescription
                         DiagnosticLog.write("capture failed error=\(error.localizedDescription)")
-                        if !ScreenCapturePermission.allowed, !self.didAutoRequestScreenPermission {
+                        if case CaptureError.screenRecordingDenied = error, !self.didAutoRequestScreenPermission {
+                            // Solo una vez por ejecución: si TCC ya tiene una
+                            // decisión, `request()` no muestra nada y abrimos Ajustes.
                             self.didAutoRequestScreenPermission = true
-                            _ = ScreenCapturePermission.request()
+                            if !ScreenCapturePermission.request() {
+                                ScreenCapturePermission.openSettings()
+                            }
                         }
                         NSSound.beep()
                     }
@@ -277,16 +286,27 @@ final class CaptureManager: ObservableObject {
         DiagnosticLog.write("armed capture activity ended")
     }
 
+    /// Captura la zona y la guarda en disco. Se ejecuta fuera del hilo principal.
+    ///
+    /// Usa ScreenCaptureKit (macOS 15.2+) y recurre a `/usr/sbin/screencapture`
+    /// solo ante fallos transitorios o en sistemas anteriores. Un permiso
+    /// denegado se devuelve como `CaptureError.screenRecordingDenied`.
     nonisolated static func performCapture(request: CaptureRequest) -> Result<URL, Error> {
-        let folderURL = URL(fileURLWithPath: request.outputFolderPath, isDirectory: true)
         do {
-            try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
-            let fileURL = folderURL
-                .appendingPathComponent(Self.makeFileName(format: request.imageFormat), isDirectory: false)
+            let fileURL = try CaptureFileNaming.makeURL(
+                in: request.outputFolderPath,
+                fileExtension: request.imageFormat.fileExtension
+            )
 
-            if captureWithScreenCaptureKit(request: request, fileURL: fileURL) {
+            switch captureWithScreenCaptureKit(request: request, fileURL: fileURL) {
+            case .saved:
                 hardenCaptureFile(at: fileURL)
                 return .success(fileURL)
+            case .permissionDenied:
+                try? FileManager.default.removeItem(at: fileURL)
+                return .failure(CaptureError.screenRecordingDenied)
+            case .unavailable:
+                break
             }
 
             DiagnosticLog.write("screencapture fallback started")
@@ -377,9 +397,21 @@ final class CaptureManager: ObservableObject {
         )
     }
 
-    nonisolated private static func captureWithScreenCaptureKit(request: CaptureRequest, fileURL: URL) -> Bool {
+    /// Resultado de intentar la captura con ScreenCaptureKit.
+    private enum ScreenCaptureKitOutcome {
+        case saved
+        case permissionDenied
+        /// Error transitorio, timeout, imagen vacía o sistema sin soporte:
+        /// procede intentar con `screencapture`.
+        case unavailable
+    }
+
+    nonisolated private static func captureWithScreenCaptureKit(
+        request: CaptureRequest,
+        fileURL: URL
+    ) -> ScreenCaptureKitOutcome {
         guard #available(macOS 15.2, *) else {
-            return false
+            return .unavailable
         }
         let rect = CGRect(
             x: request.region.x,
@@ -388,29 +420,33 @@ final class CaptureManager: ObservableObject {
             height: request.region.height
         )
         let semaphore = DispatchSemaphore(value: 0)
-        let result = ScreenCaptureKitImageResult()
+        let result = LockedBox<(image: CGImage?, error: Error?)>((nil, nil))
 
         SCScreenshotManager.captureImage(in: rect) { image, error in
-            result.set(image: image, error: error)
+            result.set((image, error))
             semaphore.signal()
         }
 
         guard semaphore.wait(timeout: .now() + 8) == .success else {
             DiagnosticLog.write("screen capture kit timed out")
-            return false
+            return .unavailable
         }
-        if let errorDescription = result.errorDescription {
-            DiagnosticLog.write("screen capture kit error=\(errorDescription)")
+        let (image, error) = result.get()
+        if let error {
+            DiagnosticLog.write("screen capture kit error=\(error.localizedDescription)")
+            if ScreenCapturePermission.isPermissionDenied(error) {
+                return .permissionDenied
+            }
         }
-        guard let image = result.image else {
-            return false
+        guard let image else {
+            return .unavailable
         }
         guard !CaptureImageInspector.isLikelyBlank(image) else {
             try? FileManager.default.removeItem(at: fileURL)
             DiagnosticLog.write("screen capture kit produced blank image")
-            return false
+            return .unavailable
         }
-        return write(image: image, format: request.imageFormat, to: fileURL)
+        return write(image: image, format: request.imageFormat, to: fileURL) ? .saved : .unavailable
     }
 
     nonisolated private static func write(image: CGImage, format: ImageFormat, to fileURL: URL) -> Bool {
@@ -430,13 +466,6 @@ final class CaptureManager: ObservableObject {
         }
         CGImageDestinationAddImage(destination, image, nil)
         return CGImageDestinationFinalize(destination)
-    }
-
-    nonisolated private static func makeFileName(format: ImageFormat) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss-SSS"
-        return "SA_\(formatter.string(from: Date())).\(format.fileExtension)"
     }
 
     func revealLastCapture() {
@@ -487,26 +516,5 @@ enum CaptureImageInspector {
         }
 
         return visiblePixels == 0 || nonBlackPixels == 0
-    }
-}
-
-final class ScreenCaptureKitImageResult: @unchecked Sendable {
-    private let lock = NSLock()
-    private var storedImage: CGImage?
-    private var storedErrorDescription: String?
-
-    var image: CGImage? {
-        lock.withLock { storedImage }
-    }
-
-    var errorDescription: String? {
-        lock.withLock { storedErrorDescription }
-    }
-
-    func set(image: CGImage?, error: Error?) {
-        lock.withLock {
-            storedImage = image
-            storedErrorDescription = error?.localizedDescription
-        }
     }
 }

@@ -17,21 +17,30 @@ struct CaptureRegion: Codable, Equatable {
         "\(width)x\(height) @ \(x),\(y)"
     }
 
+    /// Convierte una selección hecha sobre `screen` en una zona Quartz global.
+    @MainActor
     static func fromSelection(localRect: CGRect, on screen: NSScreen) -> CaptureRegion {
-        let screenRect = screen.frame
-        let virtualMaxY = NSScreen.screens.map(\.frame.maxY).max() ?? screenRect.maxY
-        return fromSelection(
+        fromSelection(
             localRect: localRect,
-            screenFrame: screenRect,
-            virtualMaxY: virtualMaxY,
+            screenFrame: screen.frame,
+            primaryScreenMaxY: ScreenGeometry.primaryScreenMaxY,
             displayName: screen.localizedName
         )
     }
 
+    /// Variante pura, testeable sin `NSScreen`.
+    ///
+    /// - Parameters:
+    ///   - localRect: selección en coordenadas AppKit locales de la pantalla.
+    ///   - screenFrame: `frame` AppKit de la pantalla donde se seleccionó.
+    ///   - primaryScreenMaxY: `maxY` de la pantalla principal, que es la
+    ///     referencia del eje Y en Quartz. No vale el máximo de todas las
+    ///     pantallas: con un monitor colocado encima de la principal, eso
+    ///     desplazaría todas las capturas.
     static func fromSelection(
         localRect: CGRect,
         screenFrame: CGRect,
-        virtualMaxY: CGFloat,
+        primaryScreenMaxY: CGFloat,
         displayName: String,
         createdAt: Date = Date()
     ) -> CaptureRegion {
@@ -41,7 +50,7 @@ struct CaptureRegion: Codable, Equatable {
             width: localRect.width,
             height: localRect.height
         )
-        let captureY = virtualMaxY - globalRect.maxY
+        let captureY = ScreenGeometry.flippedY(globalRect.maxY, primaryScreenMaxY: primaryScreenMaxY)
 
         return CaptureRegion(
             x: Int(globalRect.minX.rounded()),
