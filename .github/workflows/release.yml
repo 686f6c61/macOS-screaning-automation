@@ -11,6 +11,16 @@ permissions:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   SIGNING_MODE: ${{ vars.RELEASE_SIGNING_MODE || 'developer-id' }}
+  # Huella SHA-1 del certificado raíz «Screening Automation Release». TCC asocia
+  # los permisos de los usuarios a este certificado: si cambia, todos pierden
+  # Grabación de pantalla y Monitorización de entrada. Solo se modifica a
+  # propósito y anunciándolo en el CHANGELOG.
+  RELEASE_CERT_ROOT_SHA1: 3cc7fefd87612bae95e91da7d783c7e0b7df20bc
+
+# bash explícito activa `-eo pipefail` en todos los pasos.
+defaults:
+  run:
+    shell: bash
 
 concurrency:
   group: release-${{ github.ref }}
@@ -62,6 +72,13 @@ jobs:
           RELEASE_IDENTITY_P12: ${{ secrets.RELEASE_IDENTITY_P12 }}
           RELEASE_IDENTITY_PASSWORD: ${{ secrets.RELEASE_IDENTITY_PASSWORD }}
         run: |
+          case "$SIGNING_MODE" in
+            developer-id|adhoc) ;;
+            *)
+              echo "::error::RELEASE_SIGNING_MODE must be 'developer-id' or 'adhoc', got '$SIGNING_MODE'"
+              exit 1
+              ;;
+          esac
           if [[ "$SIGNING_MODE" == "developer-id" ]]; then
             REQUIRED_SECRETS=(
               APPLE_APP_PASSWORD
@@ -74,6 +91,7 @@ jobs:
             )
           else
             REQUIRED_SECRETS=(
+              KEYCHAIN_PASSWORD
               SPARKLE_PRIVATE_KEY
               RELEASE_IDENTITY_P12
               RELEASE_IDENTITY_PASSWORD
@@ -132,7 +150,7 @@ jobs:
           CERTIFICATE_PATH="$RUNNER_TEMP/release-identity.p12"
           CERT_PEM="$RUNNER_TEMP/release-identity.pem"
           printf '%s' "$RELEASE_IDENTITY_P12" | /usr/bin/base64 -D > "$CERTIFICATE_PATH"
-          openssl pkcs12 -in "$CERTIFICATE_PATH" -passin pass:"$RELEASE_IDENTITY_PASSWORD" -nokeys -out "$CERT_PEM"
+          openssl pkcs12 -in "$CERTIFICATE_PATH" -passin env:RELEASE_IDENTITY_PASSWORD -nokeys -out "$CERT_PEM"
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
@@ -222,10 +240,21 @@ jobs:
           else
             codesign -d --verbose=4 "$APP" 2>&1 | grep 'Authority=Screening Automation Release'
             codesign -d --verbose=4 "$APP" 2>&1 | grep -E 'flags=.*runtime'
+            # El requisito designado debe seguir apuntando al mismo certificado
+            # raíz; si no, los usuarios perderían los permisos de TCC.
+            if ! codesign -d -r- "$APP" 2>&1 | grep -qi "certificate root = H\"${RELEASE_CERT_ROOT_SHA1}\""; then
+              echo "::error::Designated requirement no longer matches RELEASE_CERT_ROOT_SHA1; TCC permissions would reset for every user"
+              codesign -d -r- "$APP" 2>&1
+              exit 1
+            fi
           fi
           ruby -c releases/screening-automation.rb
           EXPECTED_SHA="$(shasum -a 256 "$ZIP" | awk '{print $1}')"
           CASK_SHA="$(awk -F '"' '/^[[:space:]]*sha256/ {print $2}' releases/screening-automation.rb)"
+          if [[ -z "$EXPECTED_SHA" || -z "$CASK_SHA" ]]; then
+            echo "::error::Could not compute archive or cask SHA-256"
+            exit 1
+          fi
           test "$EXPECTED_SHA" = "$CASK_SHA"
 
       - name: Publish immutable-ready draft release
@@ -244,6 +273,17 @@ jobs:
             --title "Screening Automation ${VERSION}" \
             --notes-file "$NOTES"
           gh release edit "$GITHUB_REF_NAME" --draft=false
+
+      - name: Delete draft release left by a failed publish
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          IS_DRAFT="$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft 2>/dev/null || echo missing)"
+          if [[ "$IS_DRAFT" == "true" ]]; then
+            gh release delete "$GITHUB_REF_NAME" --yes
+            echo "::notice::Deleted draft release $GITHUB_REF_NAME so the tag can be retried"
+          fi
 
       - name: Remove temporary keychain
         if: always()

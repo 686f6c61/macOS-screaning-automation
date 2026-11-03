@@ -1,7 +1,14 @@
-import AppKit
+// Log de diagnóstico local de la app.
+//
+// Se escribe en ~/Library/Logs/ScreeningAutomation (carpeta 0700, archivo 0600)
+// y en el log unificado del sistema. Antes de escribir se anonimizan las rutas
+// personales: el log se puede copiar y compartir desde Ajustes al pedir ayuda.
+// Rota a un único archivo `.1` al superar 512 KB.
+
 import Foundation
 import os
 
+/// Registro de eventos para diagnosticar activadores, permisos y capturas.
 enum DiagnosticLog {
     private static let maxLogBytes: UInt64 = 512 * 1024
     private static let privacyMigrationKey = "ScreeningAutomation.LogPrivacy.v2"
@@ -26,6 +33,7 @@ enum DiagnosticLog {
         folderURL.appendingPathComponent("ScreeningAutomation.log.1", isDirectory: false)
     }
 
+    /// Borra una vez los logs creados por versiones que no anonimizaban rutas.
     static func prepare() {
         guard !isTestProcess else {
             return
@@ -42,14 +50,15 @@ enum DiagnosticLog {
         }
     }
 
+    /// Añade una línea con marca de tiempo. Las rutas personales se anonimizan.
+    /// No escribe nada cuando se ejecuta dentro de los tests.
     static func write(_ message: String) {
         guard !isTestProcess else {
             return
         }
-        let formatter = ISO8601DateFormatter()
         let sanitized = sanitizedMessage(message)
         osLogger.notice("\(sanitized, privacy: .public)")
-        let line = "\(formatter.string(from: Date())) \(sanitized)\n"
+        let line = "\(Date().formatted(.iso8601)) \(sanitized)\n"
         guard let data = line.data(using: .utf8) else {
             return
         }
@@ -59,12 +68,19 @@ enum DiagnosticLog {
         }
     }
 
+    /// Últimas `limit` líneas del log. Si el archivo no existe devuelve una
+    /// lista vacía; si existe pero no se puede leer, una línea que lo explica.
     static func recentLines(_ limit: Int = 30, from fileURL: URL = DiagnosticLog.fileURL) -> [String] {
         queue.sync {
-            guard let data = try? Data(contentsOf: fileURL),
-                  let contents = String(data: data, encoding: .utf8) else {
+            let data: Data
+            do {
+                data = try Data(contentsOf: fileURL)
+            } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
                 return []
+            } catch {
+                return ["<no se pudo leer el log: \(error.localizedDescription)>"]
             }
+            let contents = String(decoding: data, as: UTF8.self)
             return contents
                 .split(separator: "\n", omittingEmptySubsequences: true)
                 .suffix(limit)
@@ -98,6 +114,11 @@ enum DiagnosticLog {
         }
     }
 
+    /// Sustituye rutas personales por `<home>` y `<path>`.
+    ///
+    /// Una ruta puede contener espacios («Cliente X»), así que no termina en el
+    /// primer espacio sino al final del mensaje, en una comilla o en el
+    /// siguiente par `clave=` del formato de log.
     static func sanitizedMessage(_ message: String) -> String {
         var sanitized = message
         let homePath = FileManager.default.homeDirectoryForCurrentUser.path
@@ -105,13 +126,15 @@ enum DiagnosticLog {
             sanitized = sanitized.replacingOccurrences(of: homePath, with: "<home>")
         }
 
+        let pathEnd = #"(?=\s+[A-Za-z_]+=|["'“”]|$)"#
         for pattern in [
-            #"file://[^\s]+"#,
-            #"/(?:Users|Volumes|private|var|tmp)/[^\s]+"#
+            #"<home>/[^\n"'“”]*?"# + pathEnd,
+            #"file://[^\n"'“”]*?"# + pathEnd,
+            #"/(?:Users|Volumes|private|var|tmp)/[^\n"'“”]*?"# + pathEnd
         ] {
             sanitized = sanitized.replacingOccurrences(
                 of: pattern,
-                with: "<path>",
+                with: pattern.hasPrefix("<home>") ? "<home>/<path>" : "<path>",
                 options: .regularExpression
             )
         }
@@ -137,14 +160,17 @@ enum DiagnosticLog {
             return
         }
 
-        if fileManager.fileExists(atPath: rotatedFileURL.path) {
-            try? fileManager.removeItem(at: rotatedFileURL)
+        do {
+            if fileManager.fileExists(atPath: rotatedFileURL.path) {
+                _ = try fileManager.replaceItemAt(rotatedFileURL, withItemAt: fileURL)
+            } else {
+                try fileManager.moveItem(at: fileURL, to: rotatedFileURL)
+            }
+        } catch {
+            // Si no se puede rotar, se vacía el archivo actual: mejor perder el
+            // historial que dejar de registrar para siempre.
+            NSLog("ScreeningAutomation diagnostic log rotation failed: \(error.localizedDescription)")
+            try Data().write(to: fileURL)
         }
-        try fileManager.moveItem(at: fileURL, to: rotatedFileURL)
-    }
-
-    static func reveal() {
-        try? ensurePrivateDirectory(fileManager: .default)
-        NSWorkspace.shared.activateFileViewerSelecting([fileURL])
     }
 }

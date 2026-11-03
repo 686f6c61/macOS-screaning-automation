@@ -173,6 +173,16 @@ final class LocalPrivacyTests: XCTestCase {
         XCTAssertTrue(sanitized.contains("<path>"))
     }
 
+    func testDiagnosticMessagesRedactPathsWithSpaces() {
+        let homePath = FileManager.default.homeDirectoryForCurrentUser.path
+        let message = "saved file=\(homePath)/Documents/Cliente X/captura final.png size=10x10"
+        let sanitized = DiagnosticLog.sanitizedMessage(message)
+
+        XCTAssertFalse(sanitized.contains("Cliente"))
+        XCTAssertFalse(sanitized.contains("captura final"))
+        XCTAssertTrue(sanitized.hasSuffix("size=10x10"))
+    }
+
     func testCaptureFilesArePrivate() throws {
         let fileURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("ScreeningAutomationTests-\(UUID().uuidString).png")
@@ -213,6 +223,27 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(reloaded.armedCaptureDelaySeconds, 2)
         XCTAssertEqual(reloaded.armedCaptureIntervalSeconds, 30)
         XCTAssertEqual(reloaded.armedCaptureCount, 120)
+    }
+}
+
+@MainActor
+final class CorruptSettingsTests: XCTestCase {
+    func testUnreadableSettingsAreBackedUpAndReported() throws {
+        let suiteName = "ScreeningAutomationTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            throw TestError.defaultsCreationFailed
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let garbage = Data("{not json".utf8)
+        defaults.set(garbage, forKey: "ScreeningAutomation.Settings.v1")
+
+        let settings = AppSettings(defaults: defaults)
+
+        XCTAssertNotNil(settings.loadWarning)
+        XCTAssertFalse(settings.hadPersistedSettings)
+        XCTAssertEqual(settings.clickCount, AppSettings.defaultClickCount)
+        let backups = defaults.dictionaryRepresentation().filter { $0.key.contains(".unreadable-") }
+        XCTAssertEqual(backups.values.first as? Data, garbage)
     }
 }
 
@@ -657,6 +688,44 @@ private func waitUntil(
         try? await Task.sleep(for: .milliseconds(20))
     }
     return condition()
+}
+
+/// Cada texto que se busca en `Localizable.strings` (vía `L10n` o con un
+/// literal en `Text`, `Label`, `Button`...) debe existir en los dos idiomas; si
+/// falta, la interfaz muestra la clave tal cual.
+final class LocalizationCoverageTests: XCTestCase {
+    func testEveryLocalizedKeyExistsInBothLanguages() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourcesURL = repoRoot.appendingPathComponent("Sources/ScreeningAutomation")
+        let sourceFiles = try FileManager.default.contentsOfDirectory(at: sourcesURL, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "swift" }
+
+        let pattern = try NSRegularExpression(
+            pattern: #"(?:L10n\.(?:t|format)|Text|Label|Button|Toggle|Stepper|Picker|LabeledContent|stepTitle|title:|requestTitle:)\(?\s*"((?:[^"\\]|\\.)*)""#
+        )
+        var keys = Set<String>()
+        for file in sourceFiles {
+            let source = try String(contentsOf: file, encoding: .utf8)
+            let range = NSRange(source.startIndex..., in: source)
+            for match in pattern.matches(in: source, range: range) {
+                guard let keyRange = Range(match.range(at: 1), in: source) else { continue }
+                let key = String(source[keyRange])
+                // Las cadenas con interpolación o sin letras no son claves.
+                if key.contains("\\(") || key.rangeOfCharacter(from: .letters) == nil { continue }
+                keys.insert(key)
+            }
+        }
+
+        for language in ["es", "en"] {
+            let stringsURL = repoRoot.appendingPathComponent("Resources/\(language).lproj/Localizable.strings")
+            let table = try XCTUnwrap(NSDictionary(contentsOf: stringsURL) as? [String: String])
+            let missing = keys.subtracting(table.keys).sorted()
+            XCTAssertTrue(missing.isEmpty, "Faltan en \(language): \(missing)")
+        }
+    }
 }
 
 final class VideoTimeFormatTests: XCTestCase {
