@@ -1,6 +1,6 @@
 # Changelog
 
-## Sin publicar
+## 0.4.3 - 2026-11-04
 
 ### Correcciones
 
@@ -20,6 +20,8 @@
   el fondo de escritorio como si fuera una captura válida.
 - Las regiones legítimamente negras (un terminal, un vídeo oscuro) ya no se
   rechazan cuando el permiso está concedido.
+- Menú de la barra de menús más compacto: una sola línea de estado y avisos
+  solo cuando hay algo que resolver.
 - Esc cancela la selección de zona.
 - «Pausar activadores» también detiene los clics recibidos por el monitor
   global de AppKit; antes podían disparar capturas con los activadores en
